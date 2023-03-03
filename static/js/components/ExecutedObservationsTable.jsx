@@ -9,13 +9,14 @@ import {
   StyledEngineProvider,
   useTheme,
 } from "@mui/material/styles";
-import Button from "@mui/material/Button";
 import makeStyles from "@mui/styles/makeStyles";
 import CircularProgress from "@mui/material/CircularProgress";
 
 import MUIDataTable from "mui-datatables";
 
 import { showNotification } from "baselayer/components/Notifications";
+import Button from "./Button";
+import ObservationFilterForm from "./ObservationFilterForm";
 
 import { saveSource, checkSource } from "../ducks/source";
 
@@ -70,7 +71,9 @@ const getMuiTheme = (theme) =>
 const ExecutedObservationsTable = ({
   observations,
   totalMatches,
+  downloadCallback,
   handleTableChange = false,
+  handleFilterSubmit = false,
   pageNumber = 1,
   numPerPage = 10,
   serverSide = true,
@@ -93,6 +96,24 @@ const ExecutedObservationsTable = ({
     return <div>{instrument ? instrument.name : ""}</div>;
   };
 
+  const renderFieldID = (dataIndex) => {
+    const { field } = observations[dataIndex];
+
+    return <div>{field ? field.field_id.toFixed(0) : ""}</div>;
+  };
+
+  const renderRA = (dataIndex) => {
+    const { field } = observations[dataIndex];
+
+    return <div>{field ? field.ra.toFixed(5) : ""}</div>;
+  };
+
+  const renderDeclination = (dataIndex) => {
+    const { field } = observations[dataIndex];
+
+    return <div>{field ? field.dec.toFixed(5) : ""}</div>;
+  };
+
   const [isSaving, setIsSaving] = useState(null);
   const handleSave = async (formData) => {
     setIsSaving(formData.id);
@@ -110,12 +131,19 @@ const ExecutedObservationsTable = ({
     setIsSaving(null);
   };
 
+  const customFilterDisplay = () => (
+    <ObservationFilterForm handleFilterSubmit={handleFilterSubmit} />
+  );
+
   const renderSaveSource = (dataIndex) => {
     const formData = {
-      id: observations[dataIndex].target_name.replace(/ /g, "_"),
+      id: observations[dataIndex].target_name?.replace(/ /g, "_"),
       ra: observations[dataIndex].field.ra,
       dec: observations[dataIndex].field.dec,
     };
+    if (!observations[dataIndex].target_name) {
+      return <div />;
+    }
     return (
       <div className={classes.actionButtons}>
         {isSaving === formData.id ? (
@@ -125,13 +153,12 @@ const ExecutedObservationsTable = ({
         ) : (
           <div>
             <Button
+              primary
               onClick={() => {
                 handleSave(formData);
               }}
               size="small"
-              color="primary"
               type="submit"
-              variant="outlined"
               data-testid={`saveObservation_${formData.id}`}
             >
               Save Source
@@ -166,6 +193,36 @@ const ExecutedObservationsTable = ({
     {
       name: "observation_id",
       label: " Observation ID",
+    },
+    {
+      name: "field_id",
+      label: "Field ID",
+      options: {
+        filter: false,
+        sort: true,
+        sortThirdClickReset: true,
+        customBodyRenderLite: renderFieldID,
+      },
+    },
+    {
+      name: "ra",
+      label: "Right Ascension",
+      options: {
+        filter: false,
+        sort: true,
+        sortThirdClickReset: true,
+        customBodyRenderLite: renderRA,
+      },
+    },
+    {
+      name: "dec",
+      label: "Declination",
+      options: {
+        filter: false,
+        sort: true,
+        sortThirdClickReset: true,
+        customBodyRenderLite: renderDeclination,
+      },
     },
     {
       name: "target_name",
@@ -218,6 +275,126 @@ const ExecutedObservationsTable = ({
     serverSide,
     pagination: true,
     count: totalMatches,
+    filter: true,
+    download: true,
+    customFilterDialogFooter: customFilterDisplay,
+    onDownload: (buildHead, buildBody) => {
+      const renderTelescopeDownload = (observation) => {
+        const { instrument } = observation;
+        return instrument.telescope ? instrument.telescope.name : "";
+      };
+      const renderInstrumentDownload = (observation) => {
+        const { instrument } = observation;
+        return instrument ? instrument.name : "";
+      };
+      const renderFieldIDDownload = (observation) => {
+        const { field } = observation;
+        return field ? field.field_id : "";
+      };
+      const renderRADownload = (observation) => {
+        const { field } = observation;
+        return field ? field.ra : "";
+      };
+      const renderDeclinationDownload = (observation) => {
+        const { field } = observation;
+        return field ? field.dec : "";
+      };
+      downloadCallback().then((data) => {
+        // if there is no data, cancel download
+        if (data?.length > 0) {
+          const result =
+            buildHead([
+              {
+                name: "telescope_name",
+                download: true,
+              },
+              {
+                name: "instrument_name",
+                download: true,
+              },
+              {
+                name: "observation_id",
+                download: true,
+              },
+              {
+                name: "field_id",
+                download: true,
+              },
+              {
+                name: "ra",
+                download: true,
+              },
+              {
+                name: "dec",
+                download: true,
+              },
+              {
+                name: "target_name",
+                download: true,
+              },
+              {
+                name: "obstime",
+                download: true,
+              },
+              {
+                name: "filt",
+                download: true,
+              },
+              {
+                name: "exposure_time",
+                download: true,
+              },
+              {
+                name: "airmass",
+                download: true,
+              },
+              {
+                name: "seeing",
+                download: true,
+              },
+              {
+                name: "limmag",
+                download: true,
+              },
+              {
+                name: "save_source",
+                download: false,
+              },
+            ]) +
+            buildBody(
+              data.map((x) => ({
+                ...x,
+                data: [
+                  renderTelescopeDownload(x),
+                  renderInstrumentDownload(x),
+                  x.observation_id,
+                  renderFieldIDDownload(x),
+                  renderRADownload(x),
+                  renderDeclinationDownload(x),
+                  x.target_name,
+                  x.obstime,
+                  x.filt,
+                  x.exposure_time,
+                  x.airmass,
+                  x.seeing,
+                  x.limmag,
+                ],
+              }))
+            );
+          const blob = new Blob([result], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.setAttribute("download", "observations.csv");
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      });
+      return false;
+    },
   };
   if (typeof handleTableChange === "function") {
     options.onTableChange = handleTableChange;
@@ -249,6 +426,8 @@ ExecutedObservationsTable.propTypes = {
   // eslint-disable-next-line react/forbid-prop-types
   observations: PropTypes.arrayOf(PropTypes.any).isRequired,
   handleTableChange: PropTypes.func.isRequired,
+  handleFilterSubmit: PropTypes.func.isRequired,
+  downloadCallback: PropTypes.func.isRequired,
   pageNumber: PropTypes.number,
   totalMatches: PropTypes.number,
   numPerPage: PropTypes.number,

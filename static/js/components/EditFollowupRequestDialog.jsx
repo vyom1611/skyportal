@@ -3,10 +3,11 @@ import { useDispatch } from "react-redux";
 import PropTypes from "prop-types";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
-import Button from "@mui/material/Button";
 import makeStyles from "@mui/styles/makeStyles";
 // eslint-disable-next-line import/no-unresolved
-import Form from "@rjsf/material-ui/v5";
+import Form from "@rjsf/mui";
+import validator from "@rjsf/validator-ajv8";
+import Button from "./Button";
 import * as Actions from "../ducks/source";
 
 const useStyles = makeStyles(() => ({
@@ -66,10 +67,9 @@ const EditFollowupRequestDialog = ({
   return (
     <span key={followupRequest.id}>
       <Button
+        primary
         size="small"
-        color="primary"
         type="submit"
-        variant="outlined"
         onClick={handleClickOpen}
         data-testid={`editRequest_${followupRequest.id}`}
       >
@@ -79,12 +79,13 @@ const EditFollowupRequestDialog = ({
         <DialogContent>
           <Form
             schema={formSchema}
+            validator={validator}
             uiSchema={
               instrumentFormParams[followupRequest.allocation.instrument.id]
                 .uiSchema
             }
             onSubmit={handleSubmit}
-            validate={validate}
+            customValidate={validate}
             liveValidate
           />
         </DialogContent>

@@ -13,16 +13,17 @@ import {
 import makeStyles from "@mui/styles/makeStyles";
 import Chip from "@mui/material/Chip";
 import Grid from "@mui/material/Grid";
-import Button from "@mui/material/Button";
 import InfoIcon from "@mui/icons-material/Info";
 
 import MUIDataTable from "mui-datatables";
+import Button from "./Button";
 
 import { filterOutEmptyValues } from "../API";
 import * as gcnEventsActions from "../ducks/gcnEvents";
 import Spinner from "./Spinner";
 import GcnEventsFilterForm from "./GcnEventsFilterForm";
 import NewGcnEvent from "./NewGcnEvent";
+import Crossmatch from "./CrossmatchGcnEvents";
 
 const useStyles = makeStyles((theme) => ({
   container: {
@@ -126,8 +127,13 @@ const GcnEvents = () => {
     if (filterData && Object.keys(filterData).length > 0) {
       params.startDate = filterData.startDate;
       params.endDate = filterData.endDate;
-      params.tagKeep = filterData.tagKeep;
-      params.tagRemove = filterData.tagRemove;
+      params.gcnTagKeep = filterData.gcnTagKeep;
+      params.gcnTagRemove = filterData.gcnTagRemove;
+      params.gcnPropertiesFilter = filterData.gcnPropertiesFilter;
+      params.localizationTagKeep = filterData.localizationTagKeep;
+      params.localizationTagRemove = filterData.localizationTagRemove;
+      params.localizationPropertiesFilter =
+        filterData.localizationPropertiesFilter;
     }
     // Save state for future
     setFetchParams(params);
@@ -147,7 +153,9 @@ const GcnEvents = () => {
 
   const handleFilterSubmit = async (formData) => {
     const data = filterOutEmptyValues(formData);
-
+    if ("property" in data) {
+      data.propertiesFilter = `${data.property}: ${data.propertyComparatorValue}: ${data.propertyComparator}`;
+    }
     handleTableFilter(1, defaultNumPerPage, data);
     setFilterFormSubmitted(true);
   };
@@ -169,10 +177,30 @@ const GcnEvents = () => {
     }
   };
 
-  const renderTags = (dataIndex) =>
-    events[dataIndex]?.tags?.map((tag) => (
+  const renderGcnTags = (dataIndex) => {
+    const gcnTags = [];
+    events[dataIndex]?.tags?.forEach((tag) => {
+      gcnTags.push(tag);
+    });
+    const gcnTagsUnique = [...new Set(gcnTags)];
+    return gcnTagsUnique.map((tag) => (
       <Chip size="small" key={tag} label={tag} className={classes.eventTags} />
     ));
+  };
+
+  const renderLocalizationTags = (dataIndex) => {
+    const localizationTags = [];
+    events[dataIndex].localizations?.forEach((loc) => {
+      loc.tags?.forEach((tag) => {
+        localizationTags.push(tag.text);
+      });
+    });
+    const localizationTagsUnique = [...new Set(localizationTags)];
+
+    return localizationTagsUnique.map((tag) => (
+      <Chip size="small" key={tag} label={tag} className={classes.eventTags} />
+    ));
+  };
 
   const renderGcnNotices = (dataIndex) => (
     <ul>
@@ -210,6 +238,13 @@ const GcnEvents = () => {
     </Link>
   );
 
+  const renderAliases = (dataIndex) =>
+    events[dataIndex]?.aliases?.length > 0 ? (
+      <p>{events[dataIndex]?.aliases.join(", ")}</p>
+    ) : (
+      <p>No aliases</p>
+    );
+
   const customFilterDisplay = () =>
     filterFormSubmitted ? (
       <div className={classes.filterAlert}>
@@ -228,10 +263,24 @@ const GcnEvents = () => {
       },
     },
     {
-      name: "tags",
-      label: "Tags",
+      name: "aliases",
+      label: "Aliases",
       options: {
-        customBodyRenderLite: renderTags,
+        customBodyRenderLite: renderAliases,
+      },
+    },
+    {
+      name: "gcn_tags",
+      label: "Event Tags",
+      options: {
+        customBodyRenderLite: renderGcnTags,
+      },
+    },
+    {
+      name: "localization_tags",
+      label: "Localization Tags",
+      options: {
+        customBodyRenderLite: renderLocalizationTags,
       },
     },
     {
@@ -294,6 +343,12 @@ const GcnEvents = () => {
           <div className={classes.paperContent}>
             <Typography variant="h6">Add a New GcnEvent</Typography>
             <NewGcnEvent />
+          </div>
+        </Paper>
+        <Paper style={{ margin: "16px 0px" }} variant="outlined">
+          <div className={classes.paperContent}>
+            <Typography variant="h6">Intersect two skymaps</Typography>
+            <Crossmatch />
           </div>
         </Paper>
       </Grid>

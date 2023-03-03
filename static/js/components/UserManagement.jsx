@@ -7,7 +7,6 @@ import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Typography from "@mui/material/Typography";
 import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
-import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import AddCircleIcon from "@mui/icons-material/AddCircle";
 import HelpIcon from "@mui/icons-material/Help";
@@ -27,15 +26,18 @@ import {
 } from "@mui/material/styles";
 import makeStyles from "@mui/styles/makeStyles";
 // eslint-disable-next-line import/no-unresolved
-import Form from "@rjsf/material-ui/v5";
+import Form from "@rjsf/mui";
+import validator from "@rjsf/validator-ajv8";
 
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 
 import { showNotification } from "baselayer/components/Notifications";
+import Button from "./Button";
 
 import FormValidationError from "./FormValidationError";
 import UserInvitations from "./UserInvitations";
+import UpdateUserParameter from "./UpdateUserParameter";
 import * as groupsActions from "../ducks/groups";
 import * as usersActions from "../ducks/users";
 import * as streamsActions from "../ducks/streams";
@@ -116,7 +118,14 @@ const UserManagement = () => {
   const [clickedUser, setClickedUser] = useState(null);
   const [dataFetched, setDataFetched] = useState(false);
 
-  const { handleSubmit, errors, reset, control, getValues } = useForm();
+  const {
+    handleSubmit,
+    reset,
+    control,
+    getValues,
+
+    formState: { errors },
+  } = useForm();
 
   const filter = createFilterOptions();
 
@@ -156,22 +165,22 @@ const UserManagement = () => {
   allGroups = allGroups?.filter((group) => !group.single_user_group);
 
   const validateGroups = () => {
-    const formState = getValues({ nest: true });
+    const formState = getValues();
     return formState.groups.length >= 1;
   };
 
   const validateStreams = () => {
-    const formState = getValues({ nest: true });
+    const formState = getValues();
     return formState.streams.length >= 1;
   };
 
   const validateACLs = () => {
-    const formState = getValues({ nest: true });
+    const formState = getValues();
     return formState.acls.length >= 1;
   };
 
   const validateRoles = () => {
-    const formState = getValues({ nest: true });
+    const formState = getValues();
     return formState.roles.length >= 1;
   };
 
@@ -339,9 +348,31 @@ const UserManagement = () => {
     const user = users[dataIndex];
     return (
       <div>
-        {`${user.first_name ? user.first_name : ""} ${
-          user.last_name ? user.last_name : ""
-        }`}
+        {`${user.first_name ? user.first_name : ""}`}
+        <UpdateUserParameter user={user} parameter="first_name" />
+        {`${user.last_name ? user.last_name : ""}`}
+        <UpdateUserParameter user={user} parameter="last_name" />
+      </div>
+    );
+  };
+
+  // MUI DataTable functions
+  const renderUsername = (dataIndex) => {
+    const user = users[dataIndex];
+    return (
+      <div>
+        {`${user.username}`}
+        <UpdateUserParameter user={user} parameter="username" />
+      </div>
+    );
+  };
+
+  const renderEmail = (dataIndex) => {
+    const user = users[dataIndex];
+    return (
+      <div>
+        {`${user.contact_email ? user.contact_email : ""}`}
+        <UpdateUserParameter user={user} parameter="contact_email" />
       </div>
     );
   };
@@ -698,6 +729,7 @@ const UserManagement = () => {
       <div>
         <Form
           schema={filterFormSchema}
+          validator={validator}
           onSubmit={({ formData }) => {
             handleFilterSubmit(formData);
           }}
@@ -733,6 +765,7 @@ const UserManagement = () => {
       options: {
         // Turn off default filtering for custom form
         filter: false,
+        customBodyRenderLite: renderUsername,
       },
     },
     {
@@ -750,6 +783,7 @@ const UserManagement = () => {
       label: "Email",
       options: {
         filter: false,
+        customBodyRenderLite: renderEmail,
       },
     },
     {
@@ -850,7 +884,7 @@ const UserManagement = () => {
             )}
             <Controller
               name="groups"
-              render={({ onChange, value, ...props }) => (
+              render={({ field: { onChange, value } }) => (
                 <Autocomplete
                   multiple
                   onChange={(e, data) => onChange(data)}
@@ -872,8 +906,6 @@ const UserManagement = () => {
                       data-testid="addUserToGroupsTextField"
                     />
                   )}
-                  // eslint-disable-next-line react/jsx-props-no-spreading
-                  {...props}
                 />
               )}
               control={control}
@@ -883,7 +915,7 @@ const UserManagement = () => {
             <br />
             <div>
               <Button
-                variant="contained"
+                primary
                 type="submit"
                 name="submitAddFromGroupsButton"
                 data-testid="submitAddFromGroupsButton"
@@ -911,7 +943,7 @@ const UserManagement = () => {
             )}
             <Controller
               name="streams"
-              render={({ onChange, value, ...props }) => (
+              render={({ field: { onChange, value } }) => (
                 <Autocomplete
                   multiple
                   onChange={(e, data) => onChange(data)}
@@ -935,8 +967,6 @@ const UserManagement = () => {
                       data-testid="addUserToStreamsTextField"
                     />
                   )}
-                  // eslint-disable-next-line react/jsx-props-no-spreading
-                  {...props}
                 />
               )}
               control={control}
@@ -946,7 +976,7 @@ const UserManagement = () => {
             <br />
             <div>
               <Button
-                variant="contained"
+                primary
                 type="submit"
                 name="submitAddStreamsButton"
                 data-testid="submitAddStreamsButton"
@@ -974,7 +1004,7 @@ const UserManagement = () => {
             )}
             <Controller
               name="acls"
-              render={({ onChange, value, ...props }) => (
+              render={({ field: { onChange, value } }) => (
                 <Autocomplete
                   multiple
                   onChange={(e, data) => onChange(data)}
@@ -995,8 +1025,6 @@ const UserManagement = () => {
                       data-testid="addUserACLsTextField"
                     />
                   )}
-                  // eslint-disable-next-line react/jsx-props-no-spreading
-                  {...props}
                 />
               )}
               control={control}
@@ -1006,7 +1034,7 @@ const UserManagement = () => {
             <br />
             <div>
               <Button
-                variant="contained"
+                primary
                 type="submit"
                 name="submitAddACLsButton"
                 data-testid="submitAddACLsButton"
@@ -1031,7 +1059,7 @@ const UserManagement = () => {
           <form onSubmit={handleSubmit(handleAddUserAffiliations)}>
             <Controller
               name="affiliations"
-              render={({ onChange, value, ...props }) => (
+              render={({ field: { onChange, value } }) => (
                 <Autocomplete
                   multiple
                   onChange={(e, data) => onChange(data)}
@@ -1075,8 +1103,6 @@ const UserManagement = () => {
                       data-testid="addUserAffiliationsTextField"
                     />
                   )}
-                  // eslint-disable-next-line react/jsx-props-no-spreading
-                  {...props}
                 />
               )}
               control={control}
@@ -1085,7 +1111,7 @@ const UserManagement = () => {
             <br />
             <div>
               <Button
-                variant="contained"
+                primary
                 type="submit"
                 name="submitAddAffiliationsButton"
                 data-testid="submitAddAffilitiationsButton"
@@ -1113,7 +1139,7 @@ const UserManagement = () => {
             )}
             <Controller
               name="roles"
-              render={({ onChange, value, ...props }) => (
+              render={({ field: { onChange, value } }) => (
                 <Autocomplete
                   multiple
                   onChange={(e, data) => onChange(data)}
@@ -1134,8 +1160,6 @@ const UserManagement = () => {
                       data-testid="addUserRolesTextField"
                     />
                   )}
-                  // eslint-disable-next-line react/jsx-props-no-spreading
-                  {...props}
                 />
               )}
               control={control}
@@ -1145,7 +1169,7 @@ const UserManagement = () => {
             <br />
             <div>
               <Button
-                variant="contained"
+                primary
                 type="submit"
                 name="submitAddRolesButton"
                 data-testid="submitAddRolesButton"
@@ -1169,7 +1193,7 @@ const UserManagement = () => {
         <DialogContent>
           <form onSubmit={handleSubmit(handleEditUserExpirationDate)}>
             <Controller
-              render={({ onChange, value }) => (
+              render={({ field: { onChange, value } }) => (
                 <DatePicker
                   value={value}
                   onChange={(date) =>
@@ -1190,8 +1214,7 @@ const UserManagement = () => {
             <br />
             <div className={classes.submitButton}>
               <Button
-                variant="contained"
-                color="primary"
+                primary
                 type="submit"
                 name="submitExpirationDateButton"
                 data-testid="submitExpirationDateButton"

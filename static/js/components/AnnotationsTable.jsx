@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
+import { useDispatch } from "react-redux";
 import PropTypes from "prop-types";
+import CircularProgress from "@mui/material/CircularProgress";
 
 import {
   createTheme,
@@ -15,6 +17,10 @@ import utc from "dayjs/plugin/utc";
 import relativeTime from "dayjs/plugin/relativeTime";
 
 import { getAnnotationValueString } from "./ScanningPageCandidateAnnotations";
+import Button from "./Button";
+
+import * as sourceActions from "../ducks/source";
+import * as spectraActions from "../ducks/spectra";
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -73,6 +79,7 @@ const getMuiTheme = (theme) =>
 const AnnotationsTable = ({ annotations, spectrumAnnotations = [] }) => {
   const classes = useStyles();
   const theme = useTheme();
+  const dispatch = useDispatch();
   const renderValue = (value) => getAnnotationValueString(value);
   const renderTime = (created_at) => dayjs().to(dayjs.utc(`${created_at}Z`));
   const renderSpectrumDate = (observed_at) => {
@@ -83,21 +90,82 @@ const AnnotationsTable = ({ annotations, spectrumAnnotations = [] }) => {
     return "";
   };
 
+  const [isRemoving, setIsRemoving] = useState(null);
+  const handleDelete = async (id, spectrum_id, annotation_id, type) => {
+    setIsRemoving(annotation_id);
+    if (type === "source") {
+      await dispatch(sourceActions.deleteAnnotation(id, annotation_id));
+    } else if (type === "spectrum") {
+      await dispatch(
+        spectraActions.deleteAnnotation(spectrum_id, annotation_id)
+      );
+    }
+    setIsRemoving(null);
+  };
+
   // Curate data
-  const tableData = [];
   annotations?.push(...spectrumAnnotations);
+  const tableData = [];
   annotations?.forEach((annotation) => {
     const {
+      id,
+      obj_id,
       origin,
       data,
       author,
       created_at,
+      type,
+      spectrum_id = null,
       spectrum_observed_at: observed_at = null,
     } = annotation;
     Object.entries(data).forEach(([key, value]) => {
-      tableData.push({ origin, key, value, author, created_at, observed_at });
+      tableData.push({
+        id,
+        obj_id,
+        origin,
+        key,
+        value,
+        author,
+        created_at,
+        type,
+        spectrum_id,
+        observed_at,
+      });
     });
   });
+
+  const renderDelete = (tmp, row) => {
+    const annotation = tableData[row.rowIndex];
+
+    return (
+      <div className={classes.actionButtons}>
+        {isRemoving === annotation.id ? (
+          <div>
+            <CircularProgress />
+          </div>
+        ) : (
+          <div>
+            <Button
+              secondary
+              onClick={() => {
+                handleDelete(
+                  annotation.obj_id,
+                  annotation.spectrum_id,
+                  annotation.id,
+                  annotation.type
+                );
+              }}
+              size="small"
+              type="submit"
+              data-testid={`deleteAllocation_${annotation.id}`}
+            >
+              Delete
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const columns = [
     {
@@ -124,6 +192,13 @@ const AnnotationsTable = ({ annotations, spectrumAnnotations = [] }) => {
       label: "Created",
       options: {
         customBodyRender: renderTime,
+      },
+    },
+    {
+      name: "delete",
+      label: "Delete",
+      options: {
+        customBodyRender: renderDelete,
       },
     },
   ];

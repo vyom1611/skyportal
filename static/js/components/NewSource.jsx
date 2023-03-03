@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 // eslint-disable-next-line import/no-unresolved
-import Form from "@rjsf/material-ui/v5";
+import Form from "@rjsf/mui";
+import validator from "@rjsf/validator-ajv8";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import DragHandleIcon from "@mui/icons-material/DragHandle";
@@ -21,7 +22,7 @@ dayjs.extend(utc);
 const NewSource = ({ classes }) => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const allGroups = useSelector((state) => state.groups.userAccessible);
+  const groups = useSelector((state) => state.groups.userAccessible);
   const [selectedGroupIds, setSelectedGroupIds] = useState([]);
 
   const handleSubmit = async ({ formData }) => {
@@ -30,6 +31,9 @@ const NewSource = ({ classes }) => {
     if (data.data !== "A source of that name does not exist.") {
       dispatch(showNotification(data.data, "error"));
     } else {
+      if (selectedGroupIds.length > 0) {
+        formData.group_ids = selectedGroupIds;
+      }
       const result = await dispatch(saveSource(formData));
       if (result.status === "success") {
         dispatch(showNotification("Source saved"));
@@ -39,6 +43,12 @@ const NewSource = ({ classes }) => {
   };
 
   function validate(formData, errors) {
+    if (selectedGroupIds.length === 0) {
+      errors.id.addError("Select at least one group.");
+    }
+    if (formData.id.indexOf(" ") >= 0) {
+      errors.id.addError("IDs are not allowed to have spaces, please fix.");
+    }
     if (formData.ra < 0 || formData.ra >= 360) {
       errors.ra.addError("0 <= RA < 360, please fix.");
     }
@@ -77,15 +87,17 @@ const NewSource = ({ classes }) => {
           <DragHandleIcon className={`${classes.widgetIcon} dragHandle`} />
           <div>
             <GroupShareSelect
-              groupList={allGroups}
+              groupList={groups}
               setGroupIDs={setSelectedGroupIds}
               groupIDs={selectedGroupIds}
             />
             <Form
               schema={sourceFormSchema}
+              validator={validator}
               onSubmit={handleSubmit}
               // eslint-disable-next-line react/jsx-no-bind
-              validate={validate}
+              customValidate={validate}
+              liveValidate
             />
           </div>
         </div>

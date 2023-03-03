@@ -1,7 +1,8 @@
 import React, { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 // eslint-disable-next-line import/no-unresolved
-import Form from "@rjsf/material-ui/v5";
+import Form from "@rjsf/mui";
+import validator from "@rjsf/validator-ajv8";
 import dataUriToBuffer from "data-uri-to-buffer";
 import { showNotification } from "baselayer/components/Notifications";
 import { submitGcnEvent } from "../ducks/gcnEvent";
@@ -20,16 +21,26 @@ const NewGcnEvent = () => {
   }, [dispatch]);
 
   const handleSubmit = async ({ formData }) => {
-    if (Object.keys(formData).includes("xml")) {
+    if (Object.keys(formData).includes("xml") && formData.xml !== undefined) {
       // eslint-disable-next-line prefer-destructuring
       formData.xml = dataUriToBuffer(formData.xml).toString();
     }
-    if (Object.keys(formData).includes("ra")) {
+    if (Object.keys(formData).includes("ra") && formData.ra !== undefined) {
       // eslint-disable-next-line prefer-destructuring
       formData.skymap = {
         ra: formData.ra,
         dec: formData.dec,
         error: formData.error,
+      };
+    }
+    if (
+      Object.keys(formData).includes("polygon") &&
+      formData.polygon !== undefined
+    ) {
+      // eslint-disable-next-line prefer-destructuring
+      formData.skymap = {
+        localization_name: formData.localization_name,
+        polygon: formData.polygon,
       };
     }
     const result = await dispatch(submitGcnEvent(formData));
@@ -49,63 +60,93 @@ const NewGcnEvent = () => {
       errors.error.addError("0 < error, please fix.");
     }
     if (!formData.xml) {
-      if (
-        !formData.dateobs ||
-        !formData.ra ||
-        !formData.dec ||
-        !formData.error
-      ) {
+      if (!formData.dateobs) {
         errors.dateobs.addError(
-          "dateobs, ra, dec, and error must be defined if not uploading VOEvent"
+          "dateobs must be defined if not uploading VOEvent"
+        );
+      }
+      if (
+        !formData.polygon &&
+        !formData.skymap &&
+        (!formData.ra || !formData.dec || !formData.error)
+      ) {
+        errors.skymap.addError(
+          "Either (i) ra, dec, and error or (ii) polygon or (iii) skymap must be defined if not uploading VOEvent"
+        );
+      }
+      if (formData.polygon && !formData.localization_name) {
+        errors.polygon.addError(
+          "If polygon, must also specify localization name"
         );
       }
     }
     return errors;
   }
 
+  const properties = {
+    dateobs: {
+      type: "string",
+      title: "Observation date [i.e. 2022-05-14T12:24:25]",
+    },
+    ra: {
+      type: "number",
+      title: "Right Ascension [deg]",
+    },
+    dec: {
+      type: "number",
+      title: "Declination [deg]",
+    },
+    error: {
+      type: "number",
+      title: "1-sigma Error [deg]",
+    },
+    localization_name: {
+      type: "string",
+      title: "Localization name",
+    },
+    polygon: {
+      type: "string",
+      title:
+        "Polygon [i.e. [(30.0, 60.0), (40.0, 60.0), (40.0, 70.0), (30.0, 70.0)] ]",
+    },
+    xml: {
+      type: "string",
+      format: "data-url",
+      title: "VOEvent XML File",
+      description: "VOEvent XML file",
+    },
+    skymap: {
+      type: "string",
+      format: "data-url",
+      title: "Skymap File",
+      description: "Skymap Fits file",
+    },
+  };
+
+  if (gcnTags.length > 0) {
+    properties.tags = {
+      type: "array",
+      items: {
+        type: "string",
+        enum: gcnTags,
+      },
+      uniqueItems: true,
+      title: "Tags list",
+    };
+  }
+
   const gcnEventFormSchema = {
     type: "object",
-    properties: {
-      dateobs: {
-        type: "string",
-        title: "Observation date [i.e. 2022-05-14T12:24:25]",
-      },
-      ra: {
-        type: "number",
-        title: "Right Ascension [deg]",
-      },
-      dec: {
-        type: "number",
-        title: "Declination [deg]",
-      },
-      error: {
-        type: "number",
-        title: "1-sigma Error [deg]",
-      },
-      tags: {
-        type: "array",
-        items: {
-          type: "string",
-          enum: gcnTags,
-        },
-        uniqueItems: true,
-        title: "Tags list",
-      },
-      xml: {
-        type: "string",
-        format: "data-url",
-        title: "VOEvent XML File",
-        description: "VOEvent XML file",
-      },
-    },
+    properties,
   };
 
   return (
     <Form
       schema={gcnEventFormSchema}
+      validator={validator}
       onSubmit={handleSubmit}
       // eslint-disable-next-line react/jsx-no-bind
-      validate={validate}
+      customValidate={validate}
       liveValidate
     />
   );

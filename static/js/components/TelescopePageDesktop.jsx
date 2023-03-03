@@ -2,11 +2,16 @@ import React, { lazy, Suspense } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import Paper from "@mui/material/Paper";
 import Grid from "@mui/material/Grid";
-import Button from "@mui/material/Button";
 import makeStyles from "@mui/styles/makeStyles";
 import CircularProgress from "@mui/material/CircularProgress";
+import { Tooltip } from "@mui/material";
+import HelpOutlineOutlinedIcon from "@mui/icons-material/HelpOutlineOutlined";
+import Button from "./Button";
 import NewTelescope from "./NewTelescope";
 import TelescopeInfo from "./TelescopeInfo";
+
+import TelescopeSearchBar from "./TelescopeSearchBar";
+
 // lazy import the TelescopeMap component
 const TelescopeMap = lazy(() => import("./TelescopeMap"));
 
@@ -30,12 +35,46 @@ const useStyles = makeStyles((theme) => ({
   },
   selectedMenu: {
     height: "3rem",
-    backgroundColor: "lightblue",
     fontSize: "1.2rem",
   },
   nonSelectedMenu: {
     height: "3rem",
     fontSize: "1.2rem",
+  },
+  help: {
+    display: "flex",
+    justifyContent: "right",
+    alignItems: "center",
+  },
+  tooltip: {
+    maxWidth: "60rem",
+    fontSize: "1.2rem",
+  },
+  tooltipContent: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
+  },
+  legend: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "left",
+    alignItems: "center",
+    gap: "10px",
+  },
+  circle: {
+    borderRadius: "50%",
+    width: "25px",
+    height: "25px",
+    display: "inline-block",
+  },
+  rect: {
+    width: "25px",
+    height: "25px",
+    display: "inline-block",
   },
 }));
 
@@ -94,6 +133,32 @@ const TelescopePage = () => {
 
   const classes = useStyles();
 
+  const Title = () => (
+    <div className={classes.tooltipContent}>
+      <div className={classes.legend}>
+        <div style={{ background: "#f9d71c" }} className={classes.circle} />
+        <p> Daytime</p>
+      </div>
+      <div className={classes.legend}>
+        <div style={{ background: "#0c1445" }} className={classes.circle} />
+        <p> Nighttime</p>
+      </div>
+      <div className={classes.legend}>
+        <div style={{ background: "#5ca9d6" }} className={classes.rect} />
+        <p> Networks and Space-based Instruments</p>
+      </div>
+    </div>
+  );
+  const TelescopeToolTip = () => (
+    <Tooltip
+      title={Title()}
+      placement="bottom-end"
+      classes={{ tooltip: classes.tooltip }}
+    >
+      <HelpOutlineOutlinedIcon />
+    </Tooltip>
+  );
+
   function isMenuSelected(menu) {
     let style;
     if (menu === currentTelescopeMenu) {
@@ -115,19 +180,24 @@ const TelescopePage = () => {
         <Grid item md={8} sm={12}>
           <Paper className={classes.paperContent}>
             <TelescopeMap telescopes={telescopeList} />
+            <div className={classes.help}>
+              <TelescopeToolTip />
+            </div>
           </Paper>
         </Grid>
         <Grid item md={4} sm={12}>
           <Paper className={classes.menu}>
             <Button
+              secondary
               id="telescope-list"
               onClick={() => setSelectedMenu("Telescope List")}
               className={isMenuSelected("Telescope List")}
             >
               Telescope List
             </Button>
-            {currentUser.permissions?.includes("Manage allocations") && (
+            {currentUser.permissions?.includes("Manage telescopes") && (
               <Button
+                primary
                 id="new-telescope"
                 onClick={() => setSelectedMenu("New Telescope")}
                 className={isMenuSelected("New Telescope")}
@@ -137,10 +207,13 @@ const TelescopePage = () => {
             )}
           </Paper>
           <Paper className={classes.paperContent}>
+            <Paper>
+              <TelescopeSearchBar id="search" telescopeList={telescopeList} />
+            </Paper>
             {currentTelescopeMenu === "Telescope List" ? (
               <TelescopeInfo />
             ) : (
-              currentUser.permissions?.includes("Manage allocations") && (
+              currentUser.permissions?.includes("Manage telescopes") && (
                 <NewTelescope />
               )
             )}

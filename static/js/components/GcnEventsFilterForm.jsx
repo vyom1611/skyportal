@@ -1,17 +1,23 @@
-import React, { useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { useDispatch, useSelector } from "react-redux";
 import Paper from "@mui/material/Paper";
-import Button from "@mui/material/Button";
 import ButtonGroup from "@mui/material/ButtonGroup";
 import TextField from "@mui/material/TextField";
 import makeStyles from "@mui/styles/makeStyles";
 import Typography from "@mui/material/Typography";
-import Select from "@mui/material/Select";
-import MenuItem from "@mui/material/MenuItem";
 import { useForm, Controller } from "react-hook-form";
+import Button from "./Button";
+
+import GcnTagsSelect from "./GcnTagsSelect";
+import GcnPropertiesSelect from "./GcnPropertiesSelect";
+import LocalizationTagsSelect from "./LocalizationTagsSelect";
+import LocalizationPropertiesSelect from "./LocalizationPropertiesSelect";
 
 import * as gcnTagsActions from "../ducks/gcnTags";
+import * as gcnPropertiesActions from "../ducks/gcnProperties";
+import * as localizationTagsActions from "../ducks/localizationTags";
+import * as localizationPropertiesActions from "../ducks/localizationProperties";
 
 const useStyles = makeStyles((theme) => ({
   paperDiv: {
@@ -102,14 +108,62 @@ const GcnEventsFilterForm = ({ handleFilterSubmit }) => {
   gcnTags = gcnTags.concat(useSelector((state) => state.gcnTags));
   gcnTags.sort();
 
+  let localizationTags = [];
+  localizationTags = gcnTags.concat(
+    useSelector((state) => state.localizationTags)
+  );
+  localizationTags.sort();
+
   useEffect(() => {
     dispatch(gcnTagsActions.fetchGcnTags());
   }, [dispatch]);
 
-  const { handleSubmit, register, control, reset, getValues } = useForm();
+  useEffect(() => {
+    dispatch(localizationTagsActions.fetchLocalizationTags());
+  }, [dispatch]);
+
+  let gcnProperties = [];
+  gcnProperties = gcnProperties.concat(
+    useSelector((state) => state.gcnProperties)
+  );
+  gcnProperties.sort();
+
+  let localizationProperties = [];
+  localizationProperties = localizationProperties.concat(
+    useSelector((state) => state.localizationProperties)
+  );
+  localizationProperties.sort();
+
+  const [selectedGcnTags, setSelectedGcnTags] = useState([]);
+  const [rejectedGcnTags, setRejectedGcnTags] = useState([]);
+  const [selectedGcnProperties, setSelectedGcnProperties] = useState([]);
+  const [selectedLocalizationTags, setSelectedLocalizationTags] = useState([]);
+  const [rejectedLocalizationTags, setRejectedLocalizationTags] = useState([]);
+  const [selectedLocalizationProperties, setSelectedLocalizationProperties] =
+    useState([]);
+
+  useEffect(() => {
+    dispatch(gcnPropertiesActions.fetchGcnProperties());
+  }, [dispatch]);
+
+  useEffect(() => {
+    dispatch(localizationPropertiesActions.fetchLocalizationProperties());
+  }, [dispatch]);
+
+  const { handleSubmit, register, control, reset } = useForm();
 
   const handleClickReset = () => {
     reset();
+  };
+
+  const handleFilterPreSubmit = (formData) => {
+    formData.gcnTagKeep = selectedGcnTags;
+    formData.gcnTagRemove = rejectedGcnTags;
+    formData.gcnPropertiesFilter = selectedGcnProperties;
+    formData.localizationTagKeep = selectedLocalizationTags;
+    formData.localizationTagRemove = rejectedLocalizationTags;
+    formData.localizationPropertiesFilter = selectedLocalizationProperties;
+    handleFilterSubmit(formData);
   };
 
   return (
@@ -119,100 +173,84 @@ const GcnEventsFilterForm = ({ handleFilterSubmit }) => {
       </div>
       <form
         className={classes.root}
-        onSubmit={handleSubmit(handleFilterSubmit)}
+        onSubmit={handleSubmit(handleFilterPreSubmit)}
       >
-        <div className={classes.formItemRightColumn}>
+        <div className={classes.formItem}>
           <Typography variant="subtitle2" className={classes.title}>
             Time Detected (UTC)
           </Typography>
-          <TextField
-            size="small"
-            label="First Detected After"
+          <Controller
+            render={({ field: { onChange, value } }) => (
+              <TextField
+                size="small"
+                label="First Detected After"
+                name="startDate"
+                inputRef={register("startDate")}
+                placeholder="2012-08-30T00:00:00"
+                onChange={onChange}
+                value={value}
+              />
+            )}
             name="startDate"
-            inputRef={register}
-            placeholder="2012-08-30T00:00:00"
+            control={control}
           />
-          <TextField
-            size="small"
-            label="Last Detected Before"
+          <Controller
+            render={({ field: { onChange, value } }) => (
+              <TextField
+                size="small"
+                label="Last Detected Before"
+                name="endDate"
+                inputRef={register("endDate")}
+                placeholder="2012-08-30T00:00:00"
+                onChange={onChange}
+                value={value}
+              />
+            )}
             name="endDate"
-            inputRef={register}
-            placeholder="2012-08-30T00:00:00"
+            control={control}
+          />
+        </div>
+        <div className={classes.formItem}>
+          <Typography variant="subtitle2" className={classes.title}>
+            GCN Tags to Keep
+          </Typography>
+          <GcnTagsSelect
+            selectedGcnTags={selectedGcnTags}
+            setSelectedGcnTags={setSelectedGcnTags}
+          />
+          <Typography variant="subtitle2" className={classes.title}>
+            GCN Tags to Reject
+          </Typography>
+          <GcnTagsSelect
+            selectedGcnTags={rejectedGcnTags}
+            setSelectedGcnTags={setRejectedGcnTags}
+          />
+          <GcnPropertiesSelect
+            selectedGcnProperties={selectedGcnProperties}
+            setSelectedGcnProperties={setSelectedGcnProperties}
           />
         </div>
         <div className={classes.formItemRightColumn}>
           <Typography variant="subtitle2" className={classes.title}>
-            GCN Tag to Keep
+            Localization Tags to Keep
           </Typography>
-          <div className={classes.selectItems}>
-            <Controller
-              render={({ value }) => (
-                <Select
-                  inputProps={{ MenuProps: { disableScrollLock: true } }}
-                  labelId="gcnTagSelectLabel"
-                  value={value || ""}
-                  onChange={(event) => {
-                    reset({
-                      ...getValues(),
-                      tagKeep:
-                        event.target.value === -1 ? "" : event.target.value,
-                    });
-                  }}
-                  className={classes.select}
-                >
-                  {gcnTags?.map((gcnTag) => (
-                    <MenuItem
-                      value={gcnTag}
-                      key={gcnTag}
-                      className={classes.selectItem}
-                    >
-                      {`${gcnTag}`}
-                    </MenuItem>
-                  ))}
-                </Select>
-              )}
-              name="tagKeep"
-              control={control}
-              defaultValue=""
-            />
-          </div>
-        </div>
-        <div className={classes.formItemRightColumn}>
+          <LocalizationTagsSelect
+            selectedLocalizationTags={selectedLocalizationTags}
+            setSelectedLocalizationTags={setSelectedLocalizationTags}
+          />
           <Typography variant="subtitle2" className={classes.title}>
-            GCN Tag to Filter Out
+            Localization Tags to Reject
           </Typography>
-          <div className={classes.selectItems}>
-            <Controller
-              render={({ value }) => (
-                <Select
-                  inputProps={{ MenuProps: { disableScrollLock: true } }}
-                  labelId="gcnTagRemoveLabel"
-                  value={value || ""}
-                  onChange={(event) => {
-                    reset({
-                      ...getValues(),
-                      tagRemove:
-                        event.target.value === -1 ? "" : event.target.value,
-                    });
-                  }}
-                  className={classes.select}
-                >
-                  {gcnTags?.map((gcnTag) => (
-                    <MenuItem
-                      value={gcnTag}
-                      key={gcnTag}
-                      className={classes.selectItem}
-                    >
-                      {`${gcnTag}`}
-                    </MenuItem>
-                  ))}
-                </Select>
-              )}
-              name="tagRemove"
-              control={control}
-              defaultValue=""
-            />
-          </div>
+          <LocalizationTagsSelect
+            selectedLocalizationTags={rejectedLocalizationTags}
+            setSelectedLocalizationTags={setRejectedLocalizationTags}
+          />
+          <LocalizationPropertiesSelect
+            selectedLocalizationProperties={selectedLocalizationProperties}
+            setSelectedLocalizationProperties={
+              setSelectedLocalizationProperties
+            }
+          />
         </div>
         <div className={classes.formButtons}>
           <ButtonGroup
@@ -220,14 +258,10 @@ const GcnEventsFilterForm = ({ handleFilterSubmit }) => {
             color="primary"
             aria-label="contained primary button group"
           >
-            <Button variant="contained" color="primary" type="submit">
+            <Button primary type="submit">
               Submit
             </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleClickReset}
-            >
+            <Button primary onClick={handleClickReset}>
               Reset
             </Button>
           </ButtonGroup>

@@ -231,6 +231,9 @@ class AccessibleIfGroupUserIsAdminAndUserMatches(AccessibleIfUserMatches):
 accessible_by_group_admins = AccessibleIfGroupUserIsAdminAndUserMatches(
     'group.group_users.user'
 )
+accessible_by_groups_admins = AccessibleIfGroupUserIsAdminAndUserMatches(
+    'groups.group_users.user'
+)
 accessible_by_admins = AccessibleIfGroupUserIsAdminAndUserMatches('group_users.user')
 accessible_by_members = AccessibleIfUserMatches('users')
 accessible_by_stream_members = AccessibleIfUserMatches('stream.users')
@@ -365,6 +368,15 @@ class Group(Base):
         doc='The MMADetector spectra visible to this group.',
     )
 
+    mmadetector_time_intervals = relationship(
+        "MMADetectorTimeInterval",
+        secondary="group_mmadetector_time_intervals",
+        back_populates="groups",
+        cascade="save-update, merge, refresh-expire, expunge",
+        passive_deletes=True,
+        doc='The MMADetector time intervals visible to this group.',
+    )
+
     single_user_group = sa.Column(
         sa.Boolean,
         default=False,
@@ -379,6 +391,13 @@ class Group(Base):
         passive_deletes=True,
         doc="Allocations made to this group.",
     )
+    source_labels = relationship(
+        'SourceLabel',
+        back_populates="group",
+        cascade="save-update, merge, refresh-expire, expunge",
+        passive_deletes=True,
+        doc="Source labels made by this group.",
+    )
     admission_requests = relationship(
         "GroupAdmissionRequest",
         back_populates="group",
@@ -391,6 +410,13 @@ class Group(Base):
         cascade="save-update, merge, refresh-expire, expunge",
         passive_deletes=True,
         doc="TNS Robots associated with this group.",
+    )
+    gcnsummaries = relationship(
+        'GcnSummary',
+        back_populates="group",
+        cascade="save-update, merge, refresh-expire, expunge",
+        passive_deletes=True,
+        doc="Gcn Summaries associated with this group.",
     )
 
 

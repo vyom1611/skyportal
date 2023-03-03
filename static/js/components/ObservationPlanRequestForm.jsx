@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import FormControlLabel from "@mui/material/FormControlLabel";
-import DateTimePicker from "@mui/lab/DateTimePicker";
-import AdapterDateFns from "@mui/lab/AdapterDateFns";
-import LocalizationProvider from "@mui/lab/LocalizationProvider";
+import { DateTimePicker } from "@mui/x-date-pickers/DateTimePicker";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
+import { LocalizationProvider } from "@mui/x-date-pickers";
 import PropTypes from "prop-types";
 import Select from "@mui/material/Select";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 // eslint-disable-next-line import/no-unresolved
-import Form from "@rjsf/material-ui/v5";
+import Form from "@rjsf/mui";
+import validator from "@rjsf/validator-ajv8";
 import CircularProgress from "@mui/material/CircularProgress";
 import makeStyles from "@mui/styles/makeStyles";
 import { showNotification } from "baselayer/components/Notifications";
@@ -21,6 +21,7 @@ import GeoPropTypes from "geojson-prop-types";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import relativeTime from "dayjs/plugin/relativeTime";
+import Button from "./Button";
 
 import * as gcnEventActions from "../ducks/gcnEvent";
 import * as allocationActions from "../ducks/allocations";
@@ -262,7 +263,7 @@ const ObservationPlanRequestForm = ({ gcnevent }) => {
   const { allocationListApiObsplan } = useSelector(
     (state) => state.allocations
   );
-
+  const observationPlanNames = useSelector((state) => state.observationPlans);
   const { useAMPM } = useSelector((state) => state.profile.preferences);
 
   const allGroups = useSelector((state) => state.groups.all);
@@ -437,6 +438,10 @@ const ObservationPlanRequestForm = ({ gcnevent }) => {
       errors.start_date.addError("Start Date must come before End Date");
     }
 
+    if (observationPlanNames.includes(formData.queue_name)) {
+      errors.queue_name.addError("Need a unique plan name");
+    }
+
     return errors;
   };
 
@@ -548,6 +553,7 @@ const ObservationPlanRequestForm = ({ gcnevent }) => {
                   ]?.formSchema
                 : {}
             }
+            validator={validator}
             uiSchema={
               instrumentFormParams
                 ? instrumentFormParams[
@@ -556,16 +562,11 @@ const ObservationPlanRequestForm = ({ gcnevent }) => {
                 : {}
             }
             liveValidate
-            validate={validate}
+            customValidate={validate}
             onSubmit={handleQueueSubmit}
             disabled={isSubmitting}
           >
-            <Button
-              size="small"
-              color="primary"
-              type="submit"
-              variant="outlined"
-            >
+            <Button secondary size="small" type="submit">
               Add to Queue
             </Button>
           </Form>
@@ -591,13 +592,7 @@ const ObservationPlanRequestForm = ({ gcnevent }) => {
       <div>
         {planQueues.length !== 0 && (
           <>
-            <Button
-              size="small"
-              color="primary"
-              type="submit"
-              variant="outlined"
-              onClick={handleSubmit}
-            >
+            <Button secondary size="small" type="submit" onClick={handleSubmit}>
               Generate Observation Plans
             </Button>
             <FormControlLabel
@@ -622,18 +617,37 @@ const ObservationPlanRequestForm = ({ gcnevent }) => {
       </div>
       <div>
         <Button
+          secondary
+          href={`/api/localization/${selectedLocalizationId}/observability`}
+          download={`observabilityChartRequest-${selectedLocalizationId}`}
+          size="small"
+          type="submit"
+          data-testid={`observabilityChartRequest_${selectedLocalizationId}`}
+        >
+          Observability Chart
+        </Button>
+        <Button
+          secondary
           href={`/api/localization/${selectedLocalizationId}/airmass/${
             instLookUp[allocationLookUp[selectedAllocationId].instrument_id]
               .telescope_id
           }`}
           download={`airmassChartRequest-${selectedAllocationId}`}
           size="small"
-          color="primary"
           type="submit"
-          variant="outlined"
           data-testid={`airmassChartRequest_${selectedAllocationId}`}
         >
           Airmass Chart
+        </Button>
+        <Button
+          secondary
+          href={`/api/localization/${selectedLocalizationId}/worldmap`}
+          download={`worldmapChartRequest-${selectedLocalizationId}`}
+          size="small"
+          type="submit"
+          data-testid={`worldmapChartRequest_${selectedLocalizationId}`}
+        >
+          World Map Chart
         </Button>
       </div>
     </div>

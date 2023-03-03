@@ -6,7 +6,7 @@ from ...models import Telescope
 
 
 class TelescopeHandler(BaseHandler):
-    @permissions(['Manage allocations'])
+    @permissions(['Manage telescopes'])
     def post(self):
         """
         ---
@@ -116,6 +116,26 @@ class TelescopeHandler(BaseHandler):
               schema:
                 type: string
               description: Filter by name (exact match)
+            - in: query
+              name: latitudeMin
+              schema:
+                type: number
+              description: Filter by latitude >= latitudeMin
+            - in: query
+              name: latitudeMax
+              schema:
+                type: number
+              description: Filter by latitude <= latitudeMax
+            - in: query
+              name: longitudeMin
+              schema:
+                type: number
+              description: Filter by longitude >= longitudeMin
+            - in: query
+              name: longitudeMax
+              schema:
+                type: number
+              description: Filter by longitude <= longitudeMax
           responses:
             200:
               content:
@@ -126,6 +146,12 @@ class TelescopeHandler(BaseHandler):
                 application/json:
                   schema: Error
         """
+
+        tel_name = self.get_query_argument("name", None)
+        latitude_min = self.get_query_argument("latitudeMin", None)
+        latitude_max = self.get_query_argument("latitudeMax", None)
+        longitude_min = self.get_query_argument("longitudeMin", None)
+        longitude_max = self.get_query_argument("longitudeMax", None)
 
         with self.Session() as session:
 
@@ -141,10 +167,17 @@ class TelescopeHandler(BaseHandler):
                     )
                 return self.success(data=t)
 
-            tel_name = self.get_query_argument("name", None)
             stmt = Telescope.select(session.user_or_token)
             if tel_name is not None:
                 stmt = stmt.where(Telescope.name == tel_name)
+            if latitude_min is not None:
+                stmt = stmt.where(Telescope.lat >= latitude_min)
+            if latitude_max is not None:
+                stmt = stmt.where(Telescope.lat <= latitude_max)
+            if longitude_min is not None:
+                stmt = stmt.where(Telescope.lon >= longitude_min)
+            if longitude_max is not None:
+                stmt = stmt.where(Telescope.lon <= longitude_max)
 
             data = session.scalars(stmt).all()
             telescopes = []
@@ -180,11 +213,21 @@ class TelescopeHandler(BaseHandler):
                 temp['is_night_astronomical'] = is_night_astronomical
                 temp['next_twilight_morning_astronomical'] = morning
                 temp['next_twilight_evening_astronomical'] = evening
+
+                allocations = []
+                for instrument in telescope.instruments:
+                    for allocation in instrument.allocations:
+                        allocation_data = allocation.to_dict()
+                        allocation_data['allocation_users'] = [
+                            user.user.to_dict() for user in allocation.allocation_users
+                        ]
+                        allocations.append(allocation_data)
+                temp['allocations'] = allocations
                 telescopes.append(temp)
 
             return self.success(data=telescopes)
 
-    @permissions(['Manage allocations'])
+    @permissions(['Manage telescopes'])
     def put(self, telescope_id):
         """
         ---
@@ -225,7 +268,7 @@ class TelescopeHandler(BaseHandler):
 
             schema = Telescope.__schema__()
             try:
-                schema.load(data)
+                schema.load(data, partial=True)
             except ValidationError as e:
                 return self.error(
                     'Invalid/missing parameters: ' f'{e.normalized_messages()}'
@@ -257,7 +300,7 @@ class TelescopeHandler(BaseHandler):
             self.push_all(action="skyportal/REFRESH_TELESCOPES")
             return self.success()
 
-    @permissions(['Manage allocations'])
+    @permissions(['Delete telescope'])
     def delete(self, telescope_id):
         """
         ---

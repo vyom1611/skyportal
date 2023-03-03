@@ -1,20 +1,44 @@
 # Inspired by https://github.com/growth-astro/growth-too-marshal/blob/main/growth/too/gcn.py
 
+import base64
+from cdshealpix import elliptical_cone_search
 import os
 import numpy as np
 import scipy
+import healpy as hp
 import gcn
+import tempfile
 from urllib.parse import urlparse
 
 import astropy.units as u
+from astropy.table import Table
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
 
-from astropy.coordinates import ICRS
+from astropy.coordinates import ICRS, Angle, Longitude, Latitude
 from astropy_healpix import HEALPix, nside_to_level, pixel_resolution_to_nside
 import ligo.skymap.io
 import ligo.skymap.postprocess
 import ligo.skymap.moc
+import ligo.skymap.distance
+import ligo.skymap.bayestar as ligo_bayestar
+from mocpy.mocpy import flatten_pixels
+from mocpy import MOC
+
+
+def get_trigger(root):
+    """Get the trigger ID from a GCN notice."""
+
+    property_name = "TrigID"
+    path = f".//Param[@name='{property_name}']"
+    elem = root.find(path)
+    if elem is None:
+        return None
+    value = elem.attrib.get('value', None)
+    if value is not None:
+        value = int(value)
+
+    return value
 
 
 def get_dateobs(root):
@@ -50,7 +74,16 @@ def get_tags(root):
         pass
     else:
         if value == 'process.variation.burst;em.gamma':
-            yield 'GRB'
+            # Is this a GRB at all?
+            try:
+                value = root.find(".//Param[@name='GRB_Identified']").attrib['value']
+            except AttributeError:
+                yield 'GRB'
+            else:
+                if value == 'false':
+                    yield 'Not GRB'
+                else:
+                    yield 'GRB'
         elif value == 'process.variation.trans;em.gamma':
             yield 'transient'
 
@@ -177,7 +210,52 @@ def get_skymap(root, gcn_notice):
     return from_cone(ra, dec, error)
 
 
-def from_cone(ra, dec, error):
+def get_properties(root):
+
+    property_names = [
+        # Gravitational waves
+        "HasNS",
+        "HasRemnant",
+        "FAR",
+        "BNS",
+        "NSBH",
+        "BBH",
+        "MassGap",
+        "Terrestrial",
+        # GRBs
+        "Burst_Signif",
+        "Data_Signif",
+        "Det_Signif",
+        "Image_Signif",
+        "Rate_Signif",
+        "Trig_Signif",
+        "Burst_Inten",
+        "Burst_Peak",
+        "Data_Timescale",
+        "Data_Integ",
+        "Integ_Time",
+        "Trig_Timescale",
+        "Trig_Dur",
+        "Hardness_Ratio",
+        # Neutrinos
+        "signalness",
+        "energy",
+    ]
+    property_dict = {}
+    for property_name in property_names:
+        path = f".//Param[@name='{property_name}']"
+        elem = root.find(path)
+        if elem is None:
+            continue
+        value = elem.attrib.get('value', None)
+        if value is not None:
+            value = float(value)
+            property_dict[property_name] = value
+
+    return property_dict
+
+
+def from_cone(ra, dec, error, n_sigma=4):
     localization_name = f"{ra:.5f}_{dec:.5f}_{error:.5f}"
 
     center = SkyCoord(ra * u.deg, dec * u.deg)
@@ -190,7 +268,7 @@ def from_cone(ra, dec, error):
     )
 
     # Find all pixels in the 4-sigma error circle.
-    ipix = hpx.cone_search_skycoord(center, 4 * radius)
+    ipix = hpx.cone_search_skycoord(center, n_sigma * radius)
 
     # Convert to multi-resolution pixel indices and sort.
     uniq = ligo.skymap.moc.nest2uniq(nside_to_level(hpx.nside), ipix.astype(np.int64))
@@ -214,6 +292,125 @@ def from_cone(ra, dec, error):
     return skymap
 
 
+def from_polygon(localization_name, polygon):
+
+    xyz = [hp.ang2vec(r, d, lonlat=True) for r, d in polygon]
+    hpx = HEALPix(1024, 'nested', frame=ICRS())
+    ipix = hp.query_polygon(hpx.nside, np.array(xyz), nest=True)
+
+    # Convert to multi-resolution pixel indices and sort.
+    uniq = ligo.skymap.moc.nest2uniq(nside_to_level(hpx.nside), ipix.astype(np.int64))
+    i = np.argsort(uniq)
+    ipix = ipix[i]
+    uniq = uniq[i]
+
+    # Evaluate Gaussian.
+    probdensity = np.ones(ipix.shape)
+    probdensity /= probdensity.sum() * hpx.pixel_area.to_value(u.steradian)
+
+    skymap = {
+        'localization_name': localization_name,
+        'uniq': uniq.tolist(),
+        'probdensity': probdensity.tolist(),
+    }
+
+    return skymap
+
+
+def from_ellipse(localization_name, ra, dec, amaj, amin, phi):
+
+    NSIDE = int(2**13)
+    hpx = HEALPix(NSIDE, 'nested', frame=ICRS())
+    ipix, depth, fully_covered = elliptical_cone_search(
+        Longitude(ra, u.deg),
+        Latitude(dec, u.deg),
+        Angle(amaj, unit="deg"),
+        Angle(amin, unit="deg"),
+        Angle(phi, unit="deg"),
+        nside_to_level(hpx.nside),
+    )
+    moc = MOC.from_healpix_cells(ipix, depth, fully_covered)
+    ipix = flatten_pixels(moc._interval_set._intervals, int(np.log2(NSIDE)))
+
+    # Convert to multi-resolution pixel indices and sort.
+    uniq = ligo.skymap.moc.nest2uniq(nside_to_level(hpx.nside), ipix.astype(np.int64))
+    i = np.argsort(uniq)
+    ipix = ipix[i]
+    uniq = uniq[i]
+
+    probdensity = np.ones(ipix.shape)
+    probdensity /= probdensity.sum() * hpx.pixel_area.to_value(u.steradian)
+
+    skymap = {
+        'localization_name': localization_name,
+        'uniq': uniq.tolist(),
+        'probdensity': probdensity.tolist(),
+    }
+
+    return skymap
+
+
+def from_bytes(arr):
+    def get_col(m, name):
+        try:
+            col = m[name]
+        except KeyError:
+            return None
+        else:
+            return col.tolist()
+
+    with tempfile.NamedTemporaryFile(suffix=".fits.gz", mode="wb") as f:
+        arrSplit = arr.split('base64,')
+        filename = arrSplit[0].split("name=")[-1].replace(";", "")
+        f.write(base64.b64decode(arrSplit[-1]))
+        f.flush()
+
+        skymap = ligo.skymap.io.read_sky_map(f.name, moc=True)
+
+        nside = 128
+        occulted = get_occulted(f.name, nside=nside)
+        if occulted is not None:
+            order = hp.nside2order(nside)
+            skymap_flat = ligo_bayestar.rasterize(skymap, order)['PROB']
+            skymap_flat = hp.reorder(skymap_flat, 'NESTED', 'RING')
+            skymap_flat[occulted] = 0.0
+            skymap_flat = skymap_flat / skymap_flat.sum()
+            skymap_flat = hp.reorder(skymap_flat, 'RING', 'NESTED')
+            skymap = ligo_bayestar.derasterize(Table([skymap_flat], names=['PROB']))
+
+        skymap = {
+            'localization_name': filename,
+            'uniq': get_col(skymap, 'UNIQ'),
+            'probdensity': get_col(skymap, 'PROBDENSITY'),
+            'distmu': get_col(skymap, 'DISTMU'),
+            'distsigma': get_col(skymap, 'DISTSIGMA'),
+            'distnorm': get_col(skymap, 'DISTNORM'),
+        }
+
+    return skymap
+
+
+def get_occulted(url, nside=64):
+
+    m = Table.read(url, format='fits')
+    ra = m.meta.get('GEO_RA', None)
+    dec = m.meta.get('GEO_DEC', None)
+    error = m.meta.get('GEO_RAD', 67.5)
+
+    if (ra is None) or (dec is None) or (error is None):
+        return None
+
+    center = SkyCoord(ra * u.deg, dec * u.deg)
+    radius = error * u.deg
+
+    hpx = HEALPix(nside, 'ring', frame=ICRS())
+
+    # Find all pixels in the circle.
+    ipix = hpx.cone_search_skycoord(center, radius)
+
+    return ipix
+
+
 def from_url(url):
     def get_col(m, name):
         try:
@@ -226,6 +423,17 @@ def from_url(url):
     filename = os.path.basename(urlparse(url).path)
 
     skymap = ligo.skymap.io.read_sky_map(url, moc=True)
+
+    nside = 128
+    occulted = get_occulted(url, nside=nside)
+    if occulted is not None:
+        order = hp.nside2order(nside)
+        skymap_flat = ligo_bayestar.rasterize(skymap, order)['PROB']
+        skymap_flat = hp.reorder(skymap_flat, 'NESTED', 'RING')
+        skymap_flat[occulted] = 0.0
+        skymap_flat = skymap_flat / skymap_flat.sum()
+        skymap_flat = hp.reorder(skymap_flat, 'RING', 'NESTED')
+        skymap = ligo_bayestar.derasterize(Table([skymap_flat], names=['PROB']))
 
     skymap = {
         'localization_name': filename,
@@ -272,3 +480,46 @@ def get_contour(localization):
     }
 
     return localization
+
+
+def get_skymap_properties(localization):
+
+    sky_map = localization.table
+
+    properties_dict = {}
+    tags_list = []
+    try:
+        result = ligo.skymap.postprocess.crossmatch(
+            sky_map, contours=(0.9,), areas=(500,)
+        )
+    except Exception:
+        return properties_dict, tags_list
+    area = result.contour_areas[0]
+    prob = result.area_probs[0]
+
+    if not np.isnan(area):
+        properties_dict["area_90"] = area
+        thresholds = [500, 1000]
+        for threshold in thresholds:
+            if properties_dict["area_90"] < threshold:
+                tags_list.append(f"< {threshold} sq. deg.")
+    if not np.isnan(prob):
+        properties_dict["probability_500"] = prob
+        if properties_dict["probability_500"] >= 0.9:
+            tags_list.append("> 0.9 in 500 sq. deg.")
+
+    # Distance stats
+    if 'DISTMU' in sky_map.dtype.names:
+        # Calculate the cumulative area in deg2 and the cumulative probability.
+        dA = ligo.skymap.moc.uniq2pixarea(sky_map['UNIQ'])
+        dP = sky_map['PROBDENSITY'] * dA
+        mu = sky_map['DISTMU']
+        sigma = sky_map['DISTSIGMA']
+
+        distmean, _ = ligo.skymap.distance.parameters_to_marginal_moments(dP, mu, sigma)
+        if not np.isnan(distmean):
+            properties_dict["distance"] = distmean
+            if distmean <= 150:
+                tags_list.append("< 150 Mpc")
+
+    return properties_dict, tags_list

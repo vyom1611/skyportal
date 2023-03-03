@@ -3,12 +3,16 @@ import * as groupsActions from "./ducks/groups";
 import * as profileActions from "./ducks/profile";
 import * as sysInfoActions from "./ducks/sysInfo";
 import * as dbInfoActions from "./ducks/dbInfo";
+import * as earthquakeActions from "./ducks/earthquake";
 import * as configActions from "./ducks/config";
+import * as defaultFollowupRequestsActions from "./ducks/default_followup_requests";
 import * as defaultObservationPlansActions from "./ducks/default_observation_plans";
+import * as defaultSurveyEfficienciesActions from "./ducks/default_survey_efficiencies";
 import * as newsFeedActions from "./ducks/newsFeed";
 import * as topSourcesActions from "./ducks/topSources";
 import * as recentSourcesActions from "./ducks/recentSources";
 import * as mmadetectorActions from "./ducks/mmadetector";
+import * as observationPlansActions from "./ducks/observationPlans";
 import * as instrumentsActions from "./ducks/instruments";
 import * as sourceCountsActions from "./ducks/sourceCounts";
 import * as observingRunsActions from "./ducks/observingRuns";
@@ -24,6 +28,7 @@ export default function hydrate() {
     dispatch(sysInfoActions.fetchSystemInfo());
     dispatch(dbInfoActions.fetchDBInfo());
     dispatch(configActions.fetchConfig());
+    dispatch(earthquakeActions.fetchEarthquakes());
     dispatch(profileActions.fetchUserProfile());
     dispatch(groupsActions.fetchGroups(true));
     dispatch(mmadetectorActions.fetchMMADetectors());
@@ -41,6 +46,9 @@ export default function hydrate() {
     dispatch(rejectedActions.fetchRejected());
     dispatch(tnsrobotsActions.fetchTNSRobots());
     dispatch(enumTypesActions.fetchEnumTypes());
+    dispatch(observationPlansActions.fetchObservationPlanNames());
+    dispatch(defaultFollowupRequestsActions.fetchDefaultFollowupRequests());
     dispatch(defaultObservationPlansActions.fetchDefaultObservationPlans());
+    dispatch(defaultSurveyEfficienciesActions.fetchDefaultSurveyEfficiencies());
   };
 }

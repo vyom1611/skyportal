@@ -4,9 +4,9 @@ import PropTypes from "prop-types";
 import makeStyles from "@mui/styles/makeStyles";
 import Paper from "@mui/material/Paper";
 import Grid from "@mui/material/Grid";
-import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import { showNotification } from "baselayer/components/Notifications";
+import Button from "./Button";
 import NewShift from "./NewShift";
 import MyCalendar from "./ShiftCalendar";
 import { CurrentShiftMenu, CommentOnShift } from "./ShiftManagement";
@@ -40,7 +40,6 @@ const ShiftPage = ({ route }) => {
   useEffect(() => {
     if (!loaded) {
       dispatch(shiftsActions.fetchShifts()).then((data) => {
-        console.log(data);
         if (data.status === "success" && data.data.length === 0) {
           dispatch(showNotification("No shifts found", "warning"));
         } else if (data.status !== "success") {
@@ -139,6 +138,7 @@ const ShiftPage = ({ route }) => {
           <Paper>
             <div className={classes.paperContent}>
               <Button
+                primary
                 name="add_shift_button"
                 onClick={() => setShow((prev) => !prev)}
               >

@@ -6,7 +6,6 @@ import { Link } from "react-router-dom";
 import makeStyles from "@mui/styles/makeStyles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import Grid from "@mui/material/Grid";
-import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
 import Accordion from "@mui/material/Accordion";
@@ -17,6 +16,7 @@ import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
 import CircularProgress from "@mui/material/CircularProgress";
 import Popover from "@mui/material/Popover";
+import AddIcon from "@mui/icons-material/Add";
 import IconButton from "@mui/material/IconButton";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 
@@ -28,8 +28,10 @@ import {
 } from "react-device-detect";
 import { WidthProvider } from "react-grid-layout";
 import { log10, abs, ceil } from "mathjs";
+import Button from "./Button";
 
 import CommentListMobile from "./CommentListMobile";
+import CopyPhotometryDialog from "./CopyPhotometryDialog";
 import ClassificationList from "./ClassificationList";
 import ClassificationForm from "./ClassificationForm";
 import ShowClassification from "./ShowClassification";
@@ -44,6 +46,7 @@ import AssignmentForm from "./AssignmentForm";
 import AssignmentList from "./AssignmentList";
 import EditSourceGroups from "./EditSourceGroups";
 import SourceNotification from "./SourceNotification";
+import UpdateSourceCoordinates from "./UpdateSourceCoordinates";
 import UpdateSourceRedshift from "./UpdateSourceRedshift";
 import SourceRedshiftHistory from "./SourceRedshiftHistory";
 import AnnotationsTable from "./AnnotationsTable";
@@ -52,6 +55,8 @@ import PhotometryTable from "./PhotometryTable";
 import FavoritesButton from "./FavoritesButton";
 import SourceAnnotationButtons from "./SourceAnnotationButtons";
 import TNSATForm from "./TNSATForm";
+
+import SourcePlugins from "./SourcePlugins";
 
 import * as spectraActions from "../ducks/spectra";
 
@@ -238,10 +243,11 @@ export const useSourceStyles = makeStyles((theme) => ({
 }));
 
 const SourceMobile = WidthProvider(
-  withOrientationChange(({ source, isLandscape, width }) => {
+  withOrientationChange(({ source, isLandscape }) => {
     const matches = useMediaQuery("(min-width: 475px)");
     const centroidPlotSize = matches ? "21.875rem" : "17rem";
     const hrDiagramSize = matches ? 300 : 200;
+    const plotWidth = matches ? 800 : 300;
 
     const classes = useSourceStyles();
 
@@ -260,6 +266,14 @@ const SourceMobile = WidthProvider(
     const { instrumentList, instrumentFormParams } = useSelector(
       (state) => state.instruments
     );
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const openDialog = () => {
+      setDialogOpen(true);
+    };
+    const closeDialog = () => {
+      setDialogOpen(false);
+    };
+
     const dispatch = useDispatch();
     const { observingRunList } = useSelector((state) => state.observingRuns);
     const { taxonomyList } = useSelector((state) => state.taxonomies);
@@ -292,8 +306,6 @@ const SourceMobile = WidthProvider(
     } else if (isTablet) {
       device = isLandscape ? "tablet_landscape" : "tablet_portrait";
     }
-
-    const plotWidth = isBrowser ? 800 : width - 100;
 
     return (
       <div className={classes.source}>
@@ -333,6 +345,9 @@ const SourceMobile = WidthProvider(
                           {dec_to_dms(source.dec, ":")} &nbsp;
                         </span>
                       </div>
+                      <div className={classes.sourceInfo}>
+                        <UpdateSourceCoordinates source={source} />
+                      </div>
                     </div>
                     <div className={classes.sourceInfo}>
                       <div>
@@ -343,7 +358,15 @@ const SourceMobile = WidthProvider(
                         <i>l</i>,<i>b</i>={source.gal_lon.toFixed(6)}, &nbsp;
                         {source.gal_lat.toFixed(6)})
                       </div>
+                      {source.ebv ? (
+                        <div>
+                          <i> E(B-V)</i>={source.ebv.toFixed(2)}
+                        </div>
+                      ) : null}
                     </div>
+                  </div>
+                  <div>
+                    <SourcePlugins source={source} />
                   </div>
                   <div className={classes.infoLine}>
                     <div className={classes.redshiftInfo}>
@@ -380,11 +403,29 @@ const SourceMobile = WidthProvider(
                   {source.duplicates && (
                     <div className={classes.infoLine}>
                       <div className={classes.sourceInfo}>
-                        Possible duplicate of:&nbsp;
+                        <b>
+                          <font color="#457b9d">Possible duplicate of:</font>
+                        </b>
+                        &nbsp;
                         {source.duplicates.map((dupID) => (
-                          <Link to={`/source/${dupID}`} role="link" key={dupID}>
+                          <div key={dupID}>
                             <Button size="small">{dupID}</Button>
-                          </Link>
+                            <Button
+                              size="small"
+                              type="button"
+                              name={`copySourceButton${dupID}`}
+                              onClick={() => openDialog(dupID)}
+                              className={classes.sourceCopy}
+                            >
+                              <AddIcon />
+                            </Button>
+                            <CopyPhotometryDialog
+                              source={source}
+                              duplicate={dupID}
+                              dialogOpen={dialogOpen}
+                              closeDialog={closeDialog}
+                            />
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -408,8 +449,8 @@ const SourceMobile = WidthProvider(
                   <div className={classes.infoLine}>
                     <div className={classes.infoButton}>
                       <Button
+                        secondary
                         size="small"
-                        variant="contained"
                         onClick={() => setShowStarList(!showStarList)}
                       >
                         {showStarList ? "Hide Starlist" : "Show Starlist"}
@@ -417,10 +458,22 @@ const SourceMobile = WidthProvider(
                     </div>
                     <div className={classes.infoButton}>
                       <Link to={`/observability/${source.id}`} role="link">
-                        <Button size="small" variant="contained">
+                        <Button secondary size="small">
                           Observability
                         </Button>
                       </Link>
+                    </div>
+                    <div className={classes.infoButton}>
+                      <Button
+                        secondary
+                        href={`/api/sources/${source.id}/observability`}
+                        download={`observabilityChartRequest-${source.id}`}
+                        size="small"
+                        type="submit"
+                        data-testid={`observabilityChartRequest_${source.id}`}
+                      >
+                        Observability Chart
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -543,16 +596,14 @@ const SourceMobile = WidthProvider(
                   <div className={classes.plotButtons}>
                     {isBrowser && (
                       <Link to={`/upload_photometry/${source.id}`} role="link">
-                        <Button variant="contained">
-                          Upload additional photometry
-                        </Button>
+                        <Button secondary>Upload additional photometry</Button>
                       </Link>
                     )}
                     <Link to={`/manage_data/${source.id}`} role="link">
-                      <Button variant="contained">Manage data</Button>
+                      <Button secondary>Manage data</Button>
                     </Link>
                     <Button
-                      variant="contained"
+                      secondary
                       onClick={() => {
                         setShowPhotometry(true);
                       }}
@@ -634,13 +685,13 @@ const SourceMobile = WidthProvider(
                   <div className={classes.plotButtons}>
                     {isBrowser && (
                       <Link to={`/upload_spectrum/${source.id}`} role="link">
-                        <Button variant="contained">
+                        <Button secondary>
                           Upload additional spectroscopy
                         </Button>
                       </Link>
                     )}
                     <Link to={`/manage_data/${source.id}`} role="link">
-                      <Button variant="contained">Manage data</Button>
+                      <Button secondary>Manage data</Button>
                     </Link>
                   </div>
                 </Grid>

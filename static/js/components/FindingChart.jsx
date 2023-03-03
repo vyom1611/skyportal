@@ -7,7 +7,6 @@ import MenuItem from "@mui/material/MenuItem";
 import InputLabel from "@mui/material/InputLabel";
 import CircularProgress from "@mui/material/CircularProgress";
 import FormControl from "@mui/material/FormControl";
-import Button from "@mui/material/Button";
 import Input from "@mui/material/Input";
 import Grid from "@mui/material/Grid";
 import Card from "@mui/material/Card";
@@ -19,6 +18,7 @@ import TextLoop from "react-text-loop";
 import { useImage } from "react-image";
 import { useForm, Controller } from "react-hook-form";
 import { useReactToPrint } from "react-to-print";
+import Button from "./Button";
 
 const useStyles = makeStyles((theme) => ({
   media: {
@@ -56,7 +56,13 @@ const useStyles = makeStyles((theme) => ({
 
 const FindingChart = () => {
   const classes = useStyles();
-  const { handleSubmit, getValues, errors, control } = useForm();
+  const {
+    handleSubmit,
+    getValues,
+    control,
+
+    formState: { errors },
+  } = useForm();
   const { id } = useParams();
 
   const [params, setParams] = useState({
@@ -168,18 +174,26 @@ const FindingChart = () => {
                           </InputLabel>
                           <p />
                           <Controller
-                            as={Select}
                             labelid="ImageSourceSelectLabel"
                             name="imagesource"
                             control={control}
                             defaultValue={params.imagesource}
                             className={classes.items}
-                          >
-                            <MenuItem value="desi">DESI DR8</MenuItem>
-                            <MenuItem value="ztfref">ZTF Ref Image</MenuItem>
-                            <MenuItem value="dss">DSS2</MenuItem>
-                            <MenuItem value="ps1">PS1</MenuItem>
-                          </Controller>
+                            render={({ field: { onChange, value } }) => (
+                              <Select
+                                labelId="ImageSourceSelectLabel"
+                                value={value}
+                                onChange={onChange}
+                              >
+                                <MenuItem value="desi">DESI DR8</MenuItem>
+                                <MenuItem value="ztfref">
+                                  ZTF Ref Image
+                                </MenuItem>
+                                <MenuItem value="dss">DSS2</MenuItem>
+                                <MenuItem value="ps1">PS1</MenuItem>
+                              </Select>
+                            )}
+                          />
                         </FormControl>
                       </Grid>
                       <Grid item xs={12}>
@@ -192,16 +206,22 @@ const FindingChart = () => {
                           </InputLabel>
                           <p />
                           <Controller
-                            as={Select}
                             labelid="PositionLabel"
                             name="positionsource"
                             control={control}
                             defaultValue={params.positionsource}
                             className={classes.items}
-                          >
-                            <MenuItem value="ztfref">ZTF Ref</MenuItem>
-                            <MenuItem value="gaia">Gaia DR3</MenuItem>
-                          </Controller>
+                            render={({ field: { onChange, value } }) => (
+                              <Select
+                                labelId="PositionSelectLabel"
+                                value={value}
+                                onChange={onChange}
+                              >
+                                <MenuItem value="ztfref">ZTF Ref</MenuItem>
+                                <MenuItem value="gaia">Gaia DR3</MenuItem>
+                              </Select>
+                            )}
+                          />
                         </FormControl>
                       </Grid>
                       <Grid item xs={12}>
@@ -210,7 +230,7 @@ const FindingChart = () => {
                             Image Size (arcmin)
                           </InputLabel>
                           <Controller
-                            as={
+                            render={({ field: { onChange, value } }) => (
                               <Input
                                 type="number"
                                 margin="dense"
@@ -221,8 +241,10 @@ const FindingChart = () => {
                                   type: "number",
                                   "aria-labelledby": "SizeSelect",
                                 }}
+                                onChange={onChange}
+                                value={value}
                               />
-                            }
+                            )}
                             name="findersize"
                             control={control}
                             defaultValue={params.findersize}
@@ -240,7 +262,7 @@ const FindingChart = () => {
                             # of Offset Stars
                           </InputLabel>
                           <Controller
-                            as={
+                            render={({ field: { onChange, value } }) => (
                               <Input
                                 type="number"
                                 margin="dense"
@@ -251,8 +273,10 @@ const FindingChart = () => {
                                   type: "number",
                                   "aria-labelledby": "HowMany",
                                 }}
+                                onChange={onChange}
+                                value={value}
                               />
-                            }
+                            )}
                             name="numoffset"
                             control={control}
                             defaultValue={params.numoffset}
@@ -266,10 +290,9 @@ const FindingChart = () => {
                       <p />
                       <Grid item xs={8}>
                         <Button
+                          primary
                           type="submit"
-                          color="primary"
                           name="finderButton"
-                          variant="contained"
                           className={classes.button}
                         >
                           Update
@@ -278,9 +301,9 @@ const FindingChart = () => {
                       <p />
                       <Grid item xs={8}>
                         <Button
-                          variant="contained"
+                          secondary
                           className={classes.button}
-                          startIcon={<PrintIcon />}
+                          endIcon={<PrintIcon />}
                           onClick={handlePrint}
                         >
                           Print

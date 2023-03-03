@@ -33,11 +33,11 @@ from ...enum_types import ALLOWED_BANDPASSES
 
 log = make_log('api/instrument')
 
-Session = scoped_session(sessionmaker(bind=DBSession.session_factory.kw["bind"]))
+Session = scoped_session(sessionmaker())
 
 
 class InstrumentHandler(BaseHandler):
-    @permissions(['Manage allocations'])
+    @permissions(['Manage instruments'])
     def post(self):
         # See bottom of this file for redoc docstring -- moved it there so that
         # it could be made an f-string.
@@ -405,9 +405,9 @@ class InstrumentHandler(BaseHandler):
 
                     if includeGeoJSON or includeGeoJSONSummary:
                         if includeGeoJSON:
-                            undefer_column = 'contour'
+                            undefer_column = InstrumentField.contour
                         elif includeGeoJSONSummary:
-                            undefer_column = 'contour_summary'
+                            undefer_column = InstrumentField.contour_summary
                         tiles = (
                             session.scalars(
                                 sa.select(InstrumentField)
@@ -464,10 +464,13 @@ class InstrumentHandler(BaseHandler):
             if inst_name is not None:
                 stmt = stmt.filter(Instrument.name == inst_name)
             instruments = session.scalars(stmt).all()
-            data = [instrument.to_dict() for instrument in instruments]
+            data = [
+                {**instrument.to_dict(), 'telescope': instrument.telescope.to_dict()}
+                for instrument in instruments
+            ]
             return self.success(data=data)
 
-    @permissions(['Manage allocations'])
+    @permissions(['Manage instruments'])
     def put(self, instrument_id):
         """
         ---
@@ -598,14 +601,18 @@ class InstrumentHandler(BaseHandler):
                 IOLoop.current().run_in_executor(
                     None,
                     lambda: add_tiles(
-                        instrument.id, instrument.name, regions, field_data
+                        instrument.id,
+                        instrument.name,
+                        regions,
+                        field_data,
+                        modify=True,
                     ),
                 )
 
             self.push_all(action="skyportal/REFRESH_INSTRUMENTS")
             return self.success()
 
-    @permissions(['Manage allocations'])
+    @permissions(['Delete instrument'])
     def delete(self, instrument_id):
         """
         ---
@@ -618,6 +625,14 @@ class InstrumentHandler(BaseHandler):
             required: true
             schema:
               type: integer
+          - in: query
+            name: fieldsOnly
+            nullable: true
+            schema:
+              type: boolean
+            description: |
+              Boolean indicating whether to just delete the associated fields.
+              Defaults to false.
         responses:
           200:
             content:
@@ -628,7 +643,9 @@ class InstrumentHandler(BaseHandler):
               application/json:
                 schema: Error
         """
+
         with self.Session() as session:
+
             stmt = Instrument.select(session.user_or_token, mode="delete").where(
                 Instrument.id == int(instrument_id)
             )
@@ -732,8 +749,15 @@ InstrumentHandler.post.__doc__ = f"""
         """
 
 
-def add_tiles(instrument_id, instrument_name, regions, field_data, session=Session()):
+def add_tiles(
+    instrument_id, instrument_name, regions, field_data, modify=False, session=None
+):
     field_ids = []
+    if session is None:
+        if Session.registry.has():
+            session = Session()
+        else:
+            session = Session(bind=DBSession.session_factory.kw["bind"])
 
     try:
         # Loop over the telescope tiles and create fields for each
@@ -879,25 +903,57 @@ def add_tiles(instrument_id, instrument_name, regions, field_data, session=Sessi
                 contour_summary = contour
 
             if field_id == -1:
+                max_field_id = session.execute(
+                    sa.select(sa.func.max(InstrumentField.field_id)).where(
+                        InstrumentField.instrument_id == instrument_id,
+                    )
+                ).scalar_one()
+
                 field = InstrumentField(
                     instrument_id=instrument_id,
                     contour=contour,
                     contour_summary=contour_summary,
                     ra=ra,
                     dec=dec,
+                    field_id=max_field_id + 1,
                 )
+                session.add(field)
+                session.commit()
             else:
-                field = InstrumentField(
-                    instrument_id=instrument_id,
-                    field_id=int(field_id),
-                    contour=contour,
-                    contour_summary=contour_summary,
-                    ra=ra,
-                    dec=dec,
-                )
-            session.add(field)
-            session.commit()
+                create_field = True
+                if modify:
+                    field = session.scalars(
+                        sa.select(InstrumentField).where(
+                            InstrumentField.instrument_id == instrument_id,
+                            InstrumentField.field_id == int(field_id),
+                        )
+                    ).first()
+
+                    if field is not None:
+                        session.execute(
+                            sa.delete(InstrumentFieldTile).where(
+                                InstrumentFieldTile.instrument_id == instrument_id,
+                                InstrumentFieldTile.instrument_field_id == field.id,
+                            )
+                        )
+                        session.commit()
+
+                        create_field = False
+
+                if create_field:
+                    field = InstrumentField(
+                        instrument_id=instrument_id,
+                        field_id=int(field_id),
+                        contour=contour,
+                        contour_summary=contour_summary,
+                        ra=ra,
+                        dec=dec,
+                    )
+                    session.add(field)
+                    session.commit()
+
             field_ids.append(field.field_id)
+
             tiles = []
             for coord in coords:
                 for hpx in Tile.tiles_from_polygon_skycoord(coord):
@@ -916,3 +972,48 @@ def add_tiles(instrument_id, instrument_name, regions, field_data, session=Sessi
     finally:
         Session.remove()
         return field_ids
+
+
+class InstrumentFieldHandler(BaseHandler):
+    @permissions(['Delete instrument'])
+    def delete(self, instrument_id):
+        """
+        ---
+        description: Delete fields associated with an instrument
+        tags:
+          - instruments
+        parameters:
+          - in: path
+            name: instrument_id
+            required: true
+            schema:
+              type: integer
+        responses:
+          200:
+            content:
+              application/json:
+                schema: Success
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+
+        with self.Session() as session:
+
+            stmt = Instrument.select(session.user_or_token, mode="delete").where(
+                Instrument.id == int(instrument_id)
+            )
+            instrument = session.scalars(stmt).first()
+            if instrument is None:
+                return self.error(f'Missing instrument with ID {instrument_id}')
+
+            session.execute(
+                sa.delete(InstrumentField).where(
+                    InstrumentFieldTile.instrument_id == instrument.id,
+                )
+            )
+            session.commit()
+
+        self.push_all(action="skyportal/REFRESH_INSTRUMENTS")
+        return self.success()

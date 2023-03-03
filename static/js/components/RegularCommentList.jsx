@@ -16,6 +16,7 @@ import UserAvatar from "./UserAvatar";
 
 import CommentAttachmentPreview from "./CommentAttachmentPreview";
 import DeleteComment from "./DeleteComment";
+import EditComment from "./EditComment";
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -24,6 +25,7 @@ const RegularCommentList = ({
   associatedResourceType = "object",
   objID = null,
   gcnEventID = null,
+  earthquakeID = null,
   styles = {},
   id = null,
   author = {},
@@ -91,11 +93,24 @@ const RegularCommentList = ({
               </Tooltip>
             </span>
           </div>
+          <div className={styles.defaultCommentEdit}>
+            <EditComment
+              associatedResourceType={associatedResourceType}
+              objID={objID}
+              gcnEventID={gcnEventID}
+              earthquakeID={earthquakeID}
+              spectrum_id={spectrum_id}
+              shift_id={shift_id}
+              hoverID={hoverID}
+              id={id}
+            />
+          </div>
           <div className={styles.defaultCommentDelete}>
             <DeleteComment
               associatedResourceType={associatedResourceType}
               objID={objID}
               gcnEventID={gcnEventID}
+              earthquakeID={earthquakeID}
               spectrum_id={spectrum_id}
               shift_id={shift_id}
               hoverID={hoverID}
@@ -142,6 +157,14 @@ const RegularCommentList = ({
               associatedResourceType="shift"
             />
           )}
+          {attachment_name && associatedResourceType === "earthquake" && (
+            <CommentAttachmentPreview
+              filename={attachment_name}
+              earthquakeID={earthquakeID}
+              commentId={id}
+              associatedResourceType="earthquake"
+            />
+          )}
         </span>
       </div>
     </>
@@ -151,6 +174,7 @@ const RegularCommentList = ({
 RegularCommentList.propTypes = {
   objID: PropTypes.string,
   gcnEventID: PropTypes.number,
+  earthquakeID: PropTypes.string,
   associatedResourceType: PropTypes.string,
   styles: PropTypes.shape({}),
   id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
@@ -167,6 +191,7 @@ RegularCommentList.propTypes = {
 RegularCommentList.defaultProps = {
   objID: null,
   gcnEventID: null,
+  earthquakeID: null,
   associatedResourceType: "object",
   styles: {},
   id: null,

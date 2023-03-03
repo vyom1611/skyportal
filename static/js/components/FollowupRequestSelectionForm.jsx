@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
+import PropTypes from "prop-types";
 import { useDispatch, useSelector } from "react-redux";
-import Button from "@mui/material/Button";
 // eslint-disable-next-line import/no-unresolved
-import Form from "@rjsf/material-ui/v5";
+import Form from "@rjsf/mui";
+import validator from "@rjsf/validator-ajv8";
 import Select from "@mui/material/Select";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
@@ -15,6 +16,7 @@ import utc from "dayjs/plugin/utc";
 import { filterOutEmptyValues } from "../API";
 import * as followupRequestActions from "../ducks/followup_requests";
 import * as instrumentActions from "../ducks/instruments";
+import Button from "./Button";
 
 dayjs.extend(utc);
 
@@ -34,7 +36,7 @@ const useStyles = makeStyles(() => ({
   },
 }));
 
-const FollowupRequestSelectionForm = () => {
+const FollowupRequestSelectionForm = ({ fetchParams, setFetchParams }) => {
   const classes = useStyles();
   const dispatch = useDispatch();
 
@@ -55,11 +57,6 @@ const FollowupRequestSelectionForm = () => {
   const [isSubmittingFilter, setIsSubmittingFilter] = useState(false);
   const [selectedInstrumentId, setSelectedInstrumentId] = useState(null);
   const [selectedFormat, setSelectedFormat] = useState("csv");
-
-  const [formDataState, setFormDataState] = useState({
-    observationStartDate: defaultStartDate,
-    observationEndDate: defaultEndDate,
-  });
 
   useEffect(() => {
     const getInstruments = async () => {
@@ -134,7 +131,7 @@ const FollowupRequestSelectionForm = () => {
   const handleSubmitFilter = async ({ formData }) => {
     setIsSubmittingFilter(true);
     await dispatch(followupRequestActions.fetchFollowupRequests(formData));
-    setFormDataState(formData);
+    setFetchParams(formData);
     setIsSubmittingFilter(false);
   };
 
@@ -204,7 +201,7 @@ const FollowupRequestSelectionForm = () => {
   const scheduleUrl = createScheduleUrl(
     selectedInstrumentId,
     selectedFormat,
-    formDataState
+    fetchParams
   );
   const reportUrl = createAllocationReportUrl(selectedInstrumentId);
   return (
@@ -212,6 +209,7 @@ const FollowupRequestSelectionForm = () => {
       <div data-testid="gcnsource-selection-form">
         <Form
           schema={FollowupRequestSelectionFormSchema}
+          validator={validator}
           onSubmit={handleSubmitFilter}
           // eslint-disable-next-line react/jsx-no-bind
           validate={validateFilter}
@@ -266,23 +264,21 @@ const FollowupRequestSelectionForm = () => {
           </MenuItem>
         </Select>
         <Button
+          primary
           href={`${scheduleUrl}`}
           download={`scheduleRequest-${selectedInstrumentId}`}
           size="small"
-          color="primary"
           type="submit"
-          variant="outlined"
           data-testid={`scheduleRequest_${selectedInstrumentId}`}
         >
           Download
         </Button>
         <Button
+          primary
           href={`${reportUrl}`}
           download={`reportRequest-${selectedInstrumentId}`}
           size="small"
-          color="primary"
           type="submit"
-          variant="outlined"
           data-testid={`reportRequest_${selectedInstrumentId}`}
         >
           Instrument Allocation Analysis
@@ -290,6 +286,16 @@ const FollowupRequestSelectionForm = () => {
       </div>
     </div>
   );
+};
+
+FollowupRequestSelectionForm.propTypes = {
+  fetchParams: PropTypes.shape({
+    pageNumber: PropTypes.number,
+    numPerPage: PropTypes.number,
+    observationStartDate: PropTypes.string,
+    observationEndDate: PropTypes.string,
+  }).isRequired,
+  setFetchParams: PropTypes.func.isRequired,
 };
 
 export default FollowupRequestSelectionForm;

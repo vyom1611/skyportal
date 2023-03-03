@@ -9,6 +9,7 @@ from .assignment import *
 from .candidate import *
 from .classification import *
 from .comment import *
+from .earthquake import *
 from .facility_transaction import *
 from .filter import *
 from .followup_request import *
@@ -26,12 +27,16 @@ from .observation import *
 from .observation_plan import *
 from .observing_run import *
 from .photometry import *
+from .photometric_series import *
 from .phot_stat import *
+from .recurring_api import *
 from .reminder import *
 from .shift import *
 from .source import *
+from .source_label import *
 from .source_view import *
 from .source_notification import *
+from .spatial_catalog import *
 from .spectrum import *
 from .survey_efficiency import *
 from .stream import *

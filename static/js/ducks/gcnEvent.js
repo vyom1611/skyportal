@@ -3,7 +3,7 @@ import messageHandler from "baselayer/MessageHandler";
 import * as API from "../API";
 import store from "../store";
 
-export const REFRESH_GCNEVENT = "skyportal/REFRESH_GCNEVENT";
+export const REFRESH_GCN_EVENT = "skyportal/REFRESH_GCN_EVENT";
 
 export const FETCH_GCNEVENT = "skyportal/FETCH_GCNEVENT";
 export const FETCH_GCNEVENT_OK = "skyportal/FETCH_GCNEVENT_OK";
@@ -12,7 +12,10 @@ export const SUBMIT_GCNEVENT = "skyportal/SUBMIT_GCNEVENT";
 
 const ADD_COMMENT_ON_GCNEVENT = "skyportal/ADD_COMMENT_ON_GCNEVENT";
 
+const EDIT_COMMENT_ON_GCNEVENT = "skyportal/EDIT_COMMENT_ON_GCNEVENT";
+
 const DELETE_COMMENT_ON_GCNEVENT = "skyportal/DELETE_COMMENT_ON_GCNEVENT";
+const PATCH_GCNEVENT_SUMMARY = "skyportal/PATCH_GCNEVENT_SUMMARY";
 
 const GET_COMMENT_ON_GCNEVENT_ATTACHMENT =
   "skyportal/GET_COMMENT_ON_GCNEVENT_ATTACHMENT";
@@ -47,8 +50,13 @@ const CREATE_OBSERVATION_PLAN_REQUEST_OBSERVING_RUN =
 const DELETE_OBSERVATION_PLAN_FIELDS =
   "skyportal/DELETE_OBSERVATION_PLAN_FIELDS";
 
-const GET_GCNEVENT_SUMMARY = "skyportal/FETCH_GCNEVENT_SUMMARY";
-const GET_GCNEVENT_SUMMARY_OK = "skyportal/FETCH_GCNEVENT_SUMMARY_OK";
+const POST_GCNEVENT_SUMMARY = "skyportal/POST_GCNEVENT_SUMMARY";
+const FETCH_GCNEVENT_SUMMARY = "skyportal/FETCH_GCNEVENT_SUMMARY";
+const DELETE_GCNEVENT_SUMMARY = "skyportal/DELETE_GCNEVENT_SUMMARY";
+
+const POST_GCN_TACH = "skyportal/POST_GCN_TACH";
+const FETCH_GCN_TACH = "skyportal/FETCH_GCN_TACH";
+const FETCH_GCN_TACH_OK = "skyportal/FETCH_GCN_TACH_OK";
 
 export const fetchGcnEvent = (dateobs) =>
   API.GET(`/api/gcn_event/${dateobs}`, FETCH_GCNEVENT);
@@ -80,6 +88,37 @@ export function addCommentOnGcnEvent(formData) {
   return API.POST(
     `/api/gcn_event/${formData.gcnevent_id}/comments`,
     ADD_COMMENT_ON_GCNEVENT,
+    formData
+  );
+}
+
+export function editCommentOnGcnEvent(commentID, gcnEventID, formData) {
+  function fileReaderPromise(file) {
+    return new Promise((resolve) => {
+      const filereader = new FileReader();
+      filereader.readAsDataURL(file);
+      filereader.onloadend = () =>
+        resolve({ body: filereader.result, name: file.name });
+    });
+  }
+  if (formData.attachment) {
+    return (dispatch) => {
+      fileReaderPromise(formData.attachment).then((fileData) => {
+        formData.attachment = fileData;
+
+        dispatch(
+          API.PUT(
+            `/api/gcn_event/${gcnEventID}/comments/${commentID}`,
+            EDIT_COMMENT_ON_GCNEVENT,
+            formData
+          )
+        );
+      });
+    };
+  }
+  return API.PUT(
+    `/api/gcn_event/${gcnEventID}/comments/${commentID}`,
+    EDIT_COMMENT_ON_GCNEVENT,
     formData
   );
 }
@@ -133,10 +172,11 @@ export const deleteObservationPlanRequestTreasureMap = (id) =>
     DELETE_OBSERVATION_PLAN_REQUEST_TREASUREMAP
   );
 
-export const createObservationPlanRequestObservingRun = (id) =>
+export const createObservationPlanRequestObservingRun = (id, params = {}) =>
   API.POST(
     `/api/observation_plan/${id}/observing_run`,
-    CREATE_OBSERVATION_PLAN_REQUEST_OBSERVING_RUN
+    CREATE_OBSERVATION_PLAN_REQUEST_OBSERVING_RUN,
+    params
   );
 
 export const deleteObservationPlanFields = (id, fieldIds) =>
@@ -164,24 +204,63 @@ export function submitGcnEvent(data) {
   return API.POST("/api/gcn_event", SUBMIT_GCNEVENT, data);
 }
 
-export function getGcnEventSummary({ dateobs, params }) {
-  return API.GET(
-    `/api/gcn_event/summary/${dateobs}`,
-    GET_GCNEVENT_SUMMARY,
+export function postGcnEventSummary({ dateobs, params }) {
+  return API.POST(
+    `/api/gcn_event/${dateobs}/summary`,
+    POST_GCNEVENT_SUMMARY,
     params
   );
 }
+
+export function fetchGcnEventSummary({ dateobs, summaryID }) {
+  return API.GET(
+    `/api/gcn_event/${dateobs}/summary/${summaryID}`,
+    FETCH_GCNEVENT_SUMMARY
+  );
+}
+
+export function deleteGcnEventSummary({ dateobs, summaryID }) {
+  return API.DELETE(
+    `/api/gcn_event/${dateobs}/summary/${summaryID}`,
+    DELETE_GCNEVENT_SUMMARY
+  );
+}
+
+export function patchGcnEventSummary(dateobs, summaryID, formData) {
+  return API.PATCH(
+    `/api/gcn_event/${dateobs}/summary/${summaryID}`,
+    PATCH_GCNEVENT_SUMMARY,
+    formData
+  );
+}
+
+export function postGcnTach(dateobs) {
+  return API.POST(`/api/gcn_event/${dateobs}/tach`, POST_GCN_TACH);
+}
+
+export function fetchGcnTach(dateobs) {
+  return API.GET(`/api/gcn_event/${dateobs}/tach`, FETCH_GCN_TACH);
+}
+
 // Websocket message handler
 messageHandler.add((actionType, payload, dispatch, getState) => {
   const { gcnEvent } = getState();
   if (actionType === FETCH_GCNEVENT) {
-    dispatch(fetchGcnEvent(gcnEvent.dateobs));
+    dispatch(fetchGcnEvent(gcnEvent.dateobs)).then((response) => {
+      if (response.status === "success") {
+        dispatch(fetchGcnTach(gcnEvent.dateobs));
+      }
+    });
   }
-  if (actionType === REFRESH_GCNEVENT) {
+  if (actionType === REFRESH_GCN_EVENT) {
     const loaded_gcnevent_key = gcnEvent?.dateobs;
 
     if (loaded_gcnevent_key === payload.gcnEvent_dateobs) {
-      dispatch(fetchGcnEvent(gcnEvent.dateobs));
+      dispatch(fetchGcnEvent(gcnEvent.dateobs)).then((response) => {
+        if (response.status === "success") {
+          dispatch(fetchGcnTach(gcnEvent.dateobs));
+        }
+      });
     }
   }
 });
@@ -215,10 +294,10 @@ const reducer = (state = null, action) => {
         },
       };
     }
-    case GET_GCNEVENT_SUMMARY_OK: {
+    case FETCH_GCN_TACH_OK: {
       return {
         ...state,
-        summary: action.data,
+        circulars: action.data.circulars,
       };
     }
     default:

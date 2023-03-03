@@ -21,6 +21,8 @@ app:
   observation_plan:
     default_filters: ['ztfg', 'ztfr', 'ztfi']
 
+  heasarc_endpoint: https://heasarc.gsfc.nasa.gov
+
   # this endpoint does not actually do anything -- it is just for testing
   sedm_endpoint: http://minar.caltech.edu/add_fritz
   sedmv2_endpoint:
@@ -40,6 +42,8 @@ app:
     port: 443
 
   ztf_forced_endpoint: https://ztfweb.ipac.caltech.edu
+
+  fink_endpoint: https://fink-portal.org
 
   swift:
     protocol: https
@@ -104,10 +108,14 @@ app:
       component: ObservingRunPage
     - path: "/allocations"
       component: AllocationPage
+    - path: "/allocation/:id"
+      component: AllocationSummary
     - path: "/observations"
       component: ObservationPage
     - path: "/galaxies"
       component: GalaxyPage
+    - path: "/spatial_catalogs"
+      component: SpatialCatalogPage
     - path: "/followup_requests"
       component: FollowupRequestPage
     - path: "/group_sources/:id"
@@ -122,6 +130,8 @@ app:
       component: FindingChart
     - path: "/source/:id/periodogram"
       component: Periodogram
+    # - path: "/source/:id/image_analysis"
+      # component: ImageAnalysisPage
     - path: "/db_stats"
       component: DBStats
     - path: "/gcn_events"
@@ -132,12 +142,20 @@ app:
       component: InstrumentPage
     - path: "/mmadetectors"
       component: MMADetectorPage
+    - path: "/earthquakes"
+      component: EarthquakesPage
+    - path: "/earthquakes/:event_id"
+      component: EarthquakePage
     - path: "/services"
       component: AnalysisServicePage
+    - path: "/recurring_apis"
+      component: RecurringAPIPage
     - path: "/shifts"
       component: ShiftNoId
     - path: "/shifts/:id"
       component: ShiftWithId
+    - path: "/taxonomies"
+      component: TaxonomyPage
 
   sidebar:
     # See https://material-ui.com/components/material-icons/
@@ -205,13 +223,29 @@ app:
           icon: ZoomInOutlined
           url: /observations
 
+        - name: Earthquakes
+          icon: PieChart
+          url: /earthquakes
+
         - name: Galaxies
           icon: TornadoOutlined
           url: /galaxies
 
+        - name: Spatial Catalogs
+          icon: PhotoSizeSelectLargeOutlined
+          url: /spatial_catalogs
+
         - name: Analysis Services
           icon: SentimentSatisfied
           url: /services
+
+        - name: Recurring API
+          icon: Restore
+          url: /recurring_apis
+
+        - name: Taxonomies
+          icon: WallpaperOutlined
+          url: /taxonomies
 
     - name: Admin
       permissions: ["Manage users", "System admin"]
@@ -388,6 +422,7 @@ server:
   # - Authorized redirect URLs: http://localhost:5000/complete/google-oauth2/
   #
   # You need to have Google+ API enabled; it takes a few minutes to activate.
+  protocol: http
   host: localhost
   port: 5000  # This is the public-facing port
 
@@ -407,6 +442,14 @@ server:
   # frontend only (i.e., no token authorized API requests)
   dedicated_frontend_processes: 2
 
+  # The max size of a request body in megabytes (M)
+  max_body_size: 10
+
+  # nginx parameter which sets both the time in seconds before which
+  # the server is considered unavailable and the subsequent period of
+  # time the server will be unavailable
+  fail_timeout: 20
+
   # Rate limit: number of requests per second (see https://www.nginx.com/blog/rate-limiting-nginx/)
   rate_limit: 5
   # Rate limit burst size (https://www.nginx.com/blog/rate-limiting-nginx/#bursts)
@@ -425,6 +468,7 @@ server:
     debug_login: True
     google_oauth2_key:
     google_oauth2_secret:
+    google_oauth2_timeout: 15
 
 services:
   dask: False
@@ -440,6 +484,9 @@ misc:
   # the user-supplied cosmology parameter set constructs the site-wide cosmology.
   cosmology: Planck18
   #cosmology: {H0: "65.0", Om0: 0.3, Ode0: 0.7, name: 'skyportal_user_cosmo'}
+
+  dustmap: sfd
+  dustmap_folder: persistentdata/dustmap
 
   # The minimum signal-to-noise ratio/ n-sigma for lim mag cacluations to
   # consider a photometry point as a detection
@@ -549,7 +596,7 @@ cross_match:
 # length that defines the full Quantum Efficiency at each wavelength.
 # must have at least two elements in the arrays
 # `wavelength` and `transmission`.
-# additional_bandpasses:
+additional_bandpasses:
 #  - name: 'atlasc'
 #    filterset: 'atlas'
 #    wavelength: [4150, 4157, 6556, 6560]
@@ -560,6 +607,16 @@ cross_match:
 #    wavelength: [5580, 5582, 8249, 8250]
 #    transmission: [0, 1, 1, 0]
 #    description: "basic ATLAS O filter - tophat transmission"
+  - name: 'swiftxrt'
+    filterset: 'xrt'
+    wavelength: [0.1, 1, 62, 100]
+    transmission: [0, 1, 1, 0]
+    description: "basic XRT filter - tophat transmission"
+  - name: 'nicerxti'
+    filterset: 'xti'
+    wavelength: [0.1, 1.2, 41, 100]
+    transmission: [0, 1, 1, 0]
+    description: "basic XTI filter - tophat transmission"
 
 user:
   default_role: 'Full user'
@@ -572,6 +629,8 @@ ports:
 gcn:
   server: gcn.nasa.gov
   # you can obtain a client_id and client_secret at https://gcn.nasa.gov/quickstart
+  # you can set a group_id to remember the last GCN the app ingested from the stream
+  client_group_id:
   client_id:
   client_secret:
   notice_types:
@@ -579,6 +638,8 @@ gcn:
     - FERMI_GBM_GND_POS
     - FERMI_GBM_FIN_POS
     - FERMI_GBM_SUBTHRESH
+    - SWIFT_BAT_GRB_POS_ACK
+    - SWIFT_XRT_POSITION
     # - LVC_PRELIMINARY
     # - LVC_INITIAL
     # - LVC_UPDATE
@@ -587,6 +648,7 @@ gcn:
     # - AMON_ICECUBE_HESE
     - ICECUBE_ASTROTRACK_GOLD
     - ICECUBE_ASTROTRACK_BRONZE
+    - MAXI_UNKNOWN
 
   observation_plans:
     - allocation-proposal_id: ZTF-001
@@ -612,6 +674,14 @@ health_monitor:
   startup_grace_seconds: 30
 
 analysis_services:
-  analysis_folder: analysis_data
+  analysis_folder: persistentdata/analysis
+  max_analysis_per_obj_per_user: 50
   sn_analysis_service:
     port: 6801
+  ngsf_analysis_service:
+    port: 7001
+  spectral_cube_analysis_service:
+    port: 7002
+
+comments_folder: persistentdata/comments
+photometric_series_folder: persistentdata/phot_series

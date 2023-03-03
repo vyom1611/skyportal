@@ -1,8 +1,7 @@
 import React from "react";
 import PropTypes from "prop-types";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
-import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
@@ -17,6 +16,8 @@ import {
 import makeStyles from "@mui/styles/makeStyles";
 
 import MUIDataTable from "mui-datatables";
+import Button from "./Button";
+import UpdateTokenACLs from "./UpdateTokenACLs";
 
 import * as Action from "../ducks/profile";
 
@@ -70,6 +71,9 @@ const TokenList = ({ tokens }) => {
   const classes = useStyles();
   const theme = useTheme();
   const dispatch = useDispatch();
+
+  const profile = useSelector((state) => state.profile);
+
   if (!tokens) {
     return <div />;
   }
@@ -81,22 +85,33 @@ const TokenList = ({ tokens }) => {
   const renderValue = (value) => (
     <div>
       <TextField id={value} value={value} readOnly={1} />
-      <Button variant="contained" size="small" onClick={() => copyToken(value)}>
+      <Button secondary size="small" onClick={() => copyToken(value)}>
         Copy to Clipboard
       </Button>
     </div>
   );
 
-  const renderACLs = (value) => value.join(", ");
+  const renderACLs = (dataIndex) => {
+    const tokenId = tokens[dataIndex].id;
+    const tokenACLs = tokens[dataIndex].acls;
+    return (
+      <div>
+        {tokens[dataIndex].acls.join(", ")}
+        <div className={classes.sourceInfo}>
+          <UpdateTokenACLs
+            tokenId={tokenId}
+            currentACLs={tokenACLs}
+            availableACLs={profile.permissions}
+          />
+        </div>
+      </div>
+    );
+  };
 
   const renderDelete = (dataIndex) => {
     const tokenId = tokens[dataIndex].id;
     return (
-      <Button
-        variant="contained"
-        size="small"
-        onClick={() => deleteToken(tokenId)}
-      >
+      <Button secondary size="small" onClick={() => deleteToken(tokenId)}>
         Delete
       </Button>
     );
@@ -115,7 +130,7 @@ const TokenList = ({ tokens }) => {
       name: "acls",
       label: "ACLs",
       options: {
-        customBodyRender: renderACLs,
+        customBodyRenderLite: renderACLs,
       },
     },
     { name: "created_at", label: "Created" },

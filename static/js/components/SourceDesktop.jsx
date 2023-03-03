@@ -5,7 +5,6 @@ import { Link } from "react-router-dom";
 
 import makeStyles from "@mui/styles/makeStyles";
 import Grid from "@mui/material/Grid";
-import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
 import Box from "@mui/material/Box";
@@ -17,9 +16,12 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Typography from "@mui/material/Typography";
 import { log10, abs, ceil } from "mathjs";
 import CircularProgress from "@mui/material/CircularProgress";
+import AddIcon from "@mui/icons-material/Add";
 import HelpOutlineOutlinedIcon from "@mui/icons-material/HelpOutlineOutlined";
+import Button from "./Button";
 
 import CommentList from "./CommentList";
+import CopyPhotometryDialog from "./CopyPhotometryDialog";
 import ClassificationList from "./ClassificationList";
 import ClassificationForm from "./ClassificationForm";
 import ShowClassification from "./ShowClassification";
@@ -34,6 +36,7 @@ import AssignmentForm from "./AssignmentForm";
 import AssignmentList from "./AssignmentList";
 import SourceNotification from "./SourceNotification";
 import EditSourceGroups from "./EditSourceGroups";
+import UpdateSourceCoordinates from "./UpdateSourceCoordinates";
 import UpdateSourceRedshift from "./UpdateSourceRedshift";
 import SourceRedshiftHistory from "./SourceRedshiftHistory";
 import AnnotationsTable from "./AnnotationsTable";
@@ -45,6 +48,8 @@ import FavoritesButton from "./FavoritesButton";
 import SourceAnnotationButtons from "./SourceAnnotationButtons";
 import TNSATForm from "./TNSATForm";
 import Reminders from "./Reminders";
+
+import SourcePlugins from "./SourcePlugins";
 
 import * as spectraActions from "../ducks/spectra";
 import * as sourceActions from "../ducks/source";
@@ -199,6 +204,12 @@ export const useSourceStyles = makeStyles((theme) => ({
     borderBottomColor: "transparent",
     borderLeftColor: "transparent",
   },
+  sourceCopy: {
+    height: "2.1875rem",
+    paddingTop: "0.5em",
+    paddingBottom: "0.5em",
+    alignItems: "center",
+  },
 }));
 
 const SourceDesktop = ({ source }) => {
@@ -208,15 +219,26 @@ const SourceDesktop = ({ source }) => {
   const [showPhotometry, setShowPhotometry] = useState(false);
   const [rightPaneVisible, setRightPaneVisible] = useState(true);
   const plotWidth = rightPaneVisible ? 800 : 1200;
+  const image_analysis = useSelector((state) => state.config.image_analysis);
 
   const { instrumentList, instrumentFormParams } = useSelector(
     (state) => state.instruments
   );
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const openDialog = () => {
+    setDialogOpen(true);
+  };
+  const closeDialog = () => {
+    setDialogOpen(false);
+  };
+
   const photometry = useSelector((state) => state.photometry[source.id]);
 
   const { observingRunList } = useSelector((state) => state.observingRuns);
   const { taxonomyList } = useSelector((state) => state.taxonomies);
+
+  const currentUser = useSelector((state) => state.profile);
 
   const groups = (useSelector((state) => state.groups.all) || []).filter(
     (g) => !g.single_user_group
@@ -287,6 +309,7 @@ const SourceDesktop = ({ source }) => {
           </div>
           {!rightPaneVisible && (
             <Button
+              secondary
               onClick={() => setRightPaneVisible(true)}
               data-testid="show-right-pane-button"
             >
@@ -332,6 +355,9 @@ const SourceDesktop = ({ source }) => {
               </div>
             </div>
             <div className={classes.sourceInfo}>
+              <UpdateSourceCoordinates source={source} />
+            </div>
+            <div className={classes.sourceInfo}>
               <div>
                 (&alpha;,&delta;= {source.ra}, &nbsp;
                 {source.dec}; &nbsp;
@@ -340,6 +366,11 @@ const SourceDesktop = ({ source }) => {
                 <i>l</i>,<i>b</i>={source.gal_lon.toFixed(6)}, &nbsp;
                 {source.gal_lat.toFixed(6)})
               </div>
+              {source.ebv ? (
+                <div>
+                  <i> E(B-V)</i>={source.ebv.toFixed(2)}
+                </div>
+              ) : null}
             </div>
           </div>
           {source.duplicates && (
@@ -350,13 +381,31 @@ const SourceDesktop = ({ source }) => {
                 </b>
                 &nbsp;
                 {source.duplicates.map((dupID) => (
-                  <Link to={`/source/${dupID}`} role="link" key={dupID}>
+                  <div key={dupID}>
                     <Button size="small">{dupID}</Button>
-                  </Link>
+                    <Button
+                      size="small"
+                      type="button"
+                      name={`copySourceButton${dupID}`}
+                      onClick={() => openDialog(dupID)}
+                      className={classes.sourceCopy}
+                    >
+                      <AddIcon />
+                    </Button>
+                    <CopyPhotometryDialog
+                      source={source}
+                      duplicate={dupID}
+                      dialogOpen={dialogOpen}
+                      closeDialog={closeDialog}
+                    />
+                  </div>
                 ))}
               </div>
             </div>
           )}
+          <div>
+            <SourcePlugins source={source} />
+          </div>
           <div className={classes.infoLine}>
             <div className={classes.redshiftInfo}>
               <b>Redshift: &nbsp;</b>
@@ -405,8 +454,8 @@ const SourceDesktop = ({ source }) => {
           <div className={classes.infoLine}>
             <div className={classes.infoButton}>
               <Button
+                secondary
                 size="small"
-                variant="contained"
                 onClick={() => setShowStarList(!showStarList)}
               >
                 {showStarList ? "Hide Starlist" : "Show Starlist"}
@@ -414,10 +463,22 @@ const SourceDesktop = ({ source }) => {
             </div>
             <div className={classes.infoButton}>
               <Link to={`/observability/${source.id}`} role="link">
-                <Button size="small" variant="contained">
+                <Button secondary size="small">
                   Observability
                 </Button>
               </Link>
+            </div>
+            <div className={classes.infoButton}>
+              <Button
+                secondary
+                href={`/api/sources/${source.id}/observability`}
+                download={`observabilityChartRequest-${source.id}`}
+                size="small"
+                type="submit"
+                data-testid={`observabilityChartRequest_${source.id}`}
+              >
+                Observability Chart
+              </Button>
             </div>
           </div>
         </div>
@@ -506,15 +567,13 @@ const SourceDesktop = ({ source }) => {
                 </div>
                 <div className={classes.buttonContainer}>
                   <Link to={`/upload_photometry/${source.id}`} role="link">
-                    <Button variant="contained">
-                      Upload additional photometry
-                    </Button>
+                    <Button secondary>Upload additional photometry</Button>
                   </Link>
                   <Link to={`/manage_data/${source.id}`} role="link">
-                    <Button variant="contained">Manage data</Button>
+                    <Button secondary>Manage data</Button>
                   </Link>
                   <Button
-                    variant="contained"
+                    secondary
                     onClick={() => {
                       setShowPhotometry(true);
                     }}
@@ -524,9 +583,18 @@ const SourceDesktop = ({ source }) => {
                   </Button>
                   {photometry && (
                     <Link to={`/source/${source.id}/periodogram`} role="link">
-                      <Button variant="contained">Periodogram Analysis</Button>
+                      <Button secondary>Periodogram Analysis</Button>
                     </Link>
                   )}
+                  {currentUser?.permissions?.includes("Upload data") &&
+                    image_analysis && (
+                      <Link
+                        to={`/source/${source.id}/image_analysis`}
+                        role="link"
+                      >
+                        <Button variant="contained">Image Analysis</Button>
+                      </Link>
+                    )}
                 </div>
               </Grid>
             </AccordionDetails>
@@ -568,12 +636,10 @@ const SourceDesktop = ({ source }) => {
                 </div>
                 <div className={classes.buttonContainer}>
                   <Link to={`/upload_spectrum/${source.id}`} role="link">
-                    <Button variant="contained">
-                      Upload additional spectroscopy
-                    </Button>
+                    <Button secondary>Upload additional spectroscopy</Button>
                   </Link>
                   <Link to={`/manage_data/${source.id}`} role="link">
-                    <Button variant="contained">Manage data</Button>
+                    <Button secondary>Manage data</Button>
                   </Link>
                 </div>
               </Grid>
@@ -627,8 +693,10 @@ const SourceDesktop = ({ source }) => {
       <Grid item xs={5}>
         {rightPaneVisible && (
           <Button
+            secondary
             onClick={() => setRightPaneVisible(false)}
             data-testid="hide-right-pane-button"
+            style={{ marginBottom: "1rem" }}
           >
             Hide right pane
           </Button>
@@ -839,6 +907,7 @@ SourceDesktop.propTypes = {
     gal_lon: PropTypes.number,
     gal_lat: PropTypes.number,
     dm: PropTypes.number,
+    ebv: PropTypes.number,
     luminosity_distance: PropTypes.number,
     annotations: PropTypes.arrayOf(
       PropTypes.shape({

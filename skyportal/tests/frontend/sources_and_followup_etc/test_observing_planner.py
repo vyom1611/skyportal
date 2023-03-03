@@ -31,8 +31,9 @@ def test_source_is_added_to_observing_run_via_frontend(
 ):
     driver.get(f"/become_user/{super_admin_user.id}")
     driver.get(f"/source/{public_source.id}")
+
     run_select = driver.wait_for_xpath(
-        '//*[@data-testid="assignmentSelect"]', timeout=20
+        '//*[@aria-labelledby="assignmentSelect"]', timeout=20
     )
     driver.scroll_to_element_and_click(run_select)
     observingrun_title = (
@@ -90,7 +91,7 @@ def test_assignment_posts_to_observing_run(
         func(f'//span[text()="{group.name[:15]}"]')
 
 
-@pytest.mark.flaky(reruns=2)
+@pytest.mark.flaky(reruns=3)
 def test_observing_run_skycam_component(
     driver, super_admin_user, public_source, red_transients_run, super_admin_token
 ):
@@ -209,15 +210,16 @@ def test_add_run_to_observing_run_page(
     driver.click_xpath('//*[@id="root_instrument_id"]')
 
     # lris
-    driver.click_xpath(f'//li[@data-value="{lris.id}"]', scroll_parent=True)
-
+    driver.click_xpath(f'//li[contains(text(), "{lris.name}")]', scroll_parent=True)
     time.sleep(1)
 
     # groups
     driver.click_xpath('//*[@id="root_group_id"]')
 
     # public group
-    driver.click_xpath(f'//li[@data-value="{public_group.id}"]', scroll_parent=True)
+    driver.click_xpath(
+        f'//li[contains(text(), "{public_group.name}")]', scroll_parent=True
+    )
 
     # submit button
     driver.click_xpath('//button[@type="submit"]')

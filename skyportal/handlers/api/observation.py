@@ -1,10 +1,9 @@
 from baselayer.app.access import permissions, auth_or_token
 from baselayer.log import make_log
 import arrow
-import astropy
+import time
 import functools
 import healpix_alchemy as ha
-import humanize
 import json
 from marshmallow.exceptions import ValidationError
 import numpy as np
@@ -16,7 +15,8 @@ from sqlalchemy.orm import joinedload, undefer
 from sqlalchemy.orm import sessionmaker, scoped_session
 from tornado.ioloop import IOLoop
 import urllib
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
+import astropy.units as u
 import io
 from io import StringIO
 
@@ -47,13 +47,15 @@ from ...utils.simsurvey import (
 )
 from .instrument import add_tiles
 from .observation_plan import observation_simsurvey, observation_simsurvey_plot
+from ...facility_apis.observation_plan import combine_healpix_tuples
+
 
 env, cfg = load_env()
 TREASUREMAP_URL = cfg['app.treasuremap_endpoint']
 
 log = make_log('api/observation')
 
-Session = scoped_session(sessionmaker(bind=DBSession.session_factory.kw["bind"]))
+Session = scoped_session(sessionmaker())
 
 MAX_OBSERVATIONS = 1000
 
@@ -66,7 +68,10 @@ def add_queued_observations(instrument_id, obstable):
         A dataframe returned from the ZTF scheduler queue
     """
 
-    session = Session()
+    if Session.registry.has():
+        session = Session()
+    else:
+        session = Session(bind=DBSession.session_factory.kw["bind"])
 
     try:
         observations = []
@@ -111,6 +116,7 @@ def add_queued_observations(instrument_id, obstable):
             f"Unable to add queued observations for instrument {instrument_id}: {e}"
         )
     finally:
+        session.close()
         Session.remove()
 
 
@@ -133,7 +139,11 @@ def add_observations(instrument_id, obstable):
 4   ztfr                 1.0    None
      """
 
-    session = Session()
+    if Session.registry.has():
+        session = Session()
+    else:
+        session = Session(bind=DBSession.session_factory.kw["bind"])
+
     # if the fields do not yet exist, we need to add them
     if ('RA' in obstable) and ('Dec' in obstable) and not ('field_id' in obstable):
         instrument = session.query(Instrument).get(instrument_id)
@@ -206,6 +216,7 @@ def add_observations(instrument_id, obstable):
     except Exception as e:
         return log(f"Unable to add observations for instrument {instrument_id}: {e}")
     finally:
+        session.close()
         Session.remove()
 
 
@@ -219,10 +230,14 @@ def get_observations(
     localization_name=None,
     localization_cumprob=0.95,
     return_statistics=False,
+    stats_method='python',
+    stats_logging=False,
     includeGeoJSON=False,
     observation_status='executed',
     n_per_page=100,
     page_number=1,
+    sort_order=None,
+    sort_by=None,
 ):
     f"""Query for list of observations
 
@@ -255,6 +270,11 @@ def get_observations(
     return_statistics: bool
         Boolean indicating whether to include integrated probability and area.
         Defaults to false.
+    stats_method: str
+        Method to use for calculating statistics. Defaults to 'python'.
+        To use the database/postgres based method, use 'db'.
+    stats_logging: bool
+        Boolean indicating whether to log the stats computation time. Defaults to false.
     includeGeoJSON: bool
                 Boolean indicating whether to include associated GeoJSON fields. Defaults to false.
     observation_status: str
@@ -337,6 +357,16 @@ def get_observations(
             return ValueError(f"Missing instrument {instrument_name}")
 
         obs_query = obs_query.where(Observation.instrument_id == instrument.id)
+    elif instrument_name is not None:
+        instrument = session.scalars(
+            Instrument.select(
+                session.user_or_token, options=[joinedload(Instrument.fields)]
+            ).where(Instrument.name == instrument_name)
+        ).first()
+        if instrument is None:
+            return ValueError(f"Missing instrument {instrument_name}")
+
+        obs_query = obs_query.where(Observation.instrument_id == instrument.id)
 
     # optional: slice by GcnEvent localization
     if localization_dateobs is not None:
@@ -376,75 +406,261 @@ def get_observations(
             ).filter(localizationtile_subquery.columns.cum_prob <= localization_cumprob)
         ).scalar_subquery()
 
-        if telescope_name is not None and instrument_name is not None:
-            tiles_subquery = (
-                sa.select(InstrumentField.id)
-                .filter(
-                    LocalizationTile.localization_id == localization.id,
-                    LocalizationTile.probdensity >= min_probdensity,
-                    InstrumentFieldTile.instrument_id == instrument.id,
-                    InstrumentFieldTile.instrument_field_id == InstrumentField.id,
-                    InstrumentFieldTile.healpix.overlaps(LocalizationTile.healpix),
-                )
-                .distinct()
-                .subquery()
-            )
-        else:
-            tiles_subquery = (
-                sa.select(InstrumentField.id)
-                .filter(
-                    LocalizationTile.localization_id == localization.id,
-                    LocalizationTile.probdensity >= min_probdensity,
-                    InstrumentFieldTile.instrument_field_id == InstrumentField.id,
-                    InstrumentFieldTile.healpix.overlaps(LocalizationTile.healpix),
-                )
-                .distinct()
-                .subquery()
-            )
-
-        obs_query = obs_query.join(
-            tiles_subquery,
-            Observation.instrument_field_id == tiles_subquery.c.id,
+        field_tiles_query = sa.select(InstrumentField.id).where(
+            LocalizationTile.localization_id == localization.id,
+            LocalizationTile.probdensity >= min_probdensity,
+            InstrumentFieldTile.instrument_field_id == InstrumentField.id,
+            InstrumentFieldTile.healpix.overlaps(LocalizationTile.healpix),
         )
 
+        if telescope_name is not None and instrument_name is not None:
+            field_tiles_query = field_tiles_query.where(
+                InstrumentFieldTile.instrument_id == instrument.id
+            )
+
+        field_tiles_subquery = field_tiles_query.distinct().subquery()
+
+        obs_query = obs_query.join(
+            field_tiles_subquery,
+            Observation.instrument_field_id == field_tiles_subquery.c.id,
+        ).distinct()
+        obs_subquery = obs_query.subquery()
+
         if return_statistics:
-            obs_subquery = obs_query.subquery()
-            fields_query = sa.select(InstrumentField.id).join(
-                obs_subquery, InstrumentField.id == obs_subquery.c.instrument_field_id
-            )
-            field_ids = session.scalars(fields_query).unique().all()
 
-            union = (
-                sa.select(ha.func.union(InstrumentFieldTile.healpix).label('healpix'))
-                .where(InstrumentFieldTile.instrument_field_id.in_(field_ids))
-                .distinct()
-                .subquery()
-            )
+            if stats_method == 'python':
+                t0 = time.time()
+                localization_tiles = session.scalars(
+                    sa.select(LocalizationTile)
+                    .where(
+                        LocalizationTile.localization_id == localization.id,
+                        LocalizationTile.probdensity >= min_probdensity,
+                    )
+                    .order_by(LocalizationTile.probdensity.desc())
+                    .distinct()
+                ).all()
+                if stats_logging:
+                    log(
+                        "STATS: ",
+                        f'Number of localization tiles= {len(localization_tiles)}. '
+                        f'Runtime= {time.time() - t0:.2f}s. ',
+                    )
 
-            area = sa.func.sum(union.columns.healpix.area)
-            prob = sa.func.sum(
-                LocalizationTile.probdensity
-                * (union.columns.healpix * LocalizationTile.healpix).area
-            )
-            query_area = sa.select(area).filter(
-                LocalizationTile.localization_id == localization.id,
-                LocalizationTile.probdensity >= min_probdensity,
-                union.columns.healpix.overlaps(LocalizationTile.healpix),
-            )
-            query_prob = sa.select(prob).filter(
-                LocalizationTile.localization_id == localization.id,
-                LocalizationTile.probdensity >= min_probdensity,
-                union.columns.healpix.overlaps(LocalizationTile.healpix),
-            )
-            intprob = session.execute(query_prob).scalar_one()
-            intarea = session.execute(query_area).scalar_one()
+                t0 = time.time()
+                instrument_field_tuples = session.execute(
+                    sa.select(
+                        InstrumentFieldTile.healpix.lower,
+                        InstrumentFieldTile.healpix.upper,
+                    )
+                    .join(
+                        obs_subquery,
+                        InstrumentFieldTile.instrument_field_id
+                        == obs_subquery.c.instrument_field_id,
+                    )
+                    .order_by(InstrumentFieldTile.healpix.lower)
+                    .distinct()
+                ).all()
 
-            if intprob is None:
-                intprob = 0.0
-            if intarea is None:
-                intarea = 0.0
+                field_lower_bounds = np.array([f[0] for f in instrument_field_tuples])
+                field_upper_bounds = np.array([f[1] for f in instrument_field_tuples])
 
+                if stats_logging:
+                    log(
+                        "STATS: ",
+                        f'Number of field tiles= {len(instrument_field_tuples)}. '
+                        f'Runtime= {time.time() - t0:.2f}s. ',
+                    )
+
+                t0 = time.time()
+                merged_tuples = combine_healpix_tuples(instrument_field_tuples)
+                total_area = sum(t[1] - t[0] for t in merged_tuples)
+                total_area *= ha.constants.PIXEL_AREA
+                if stats_logging:
+                    log(
+                        "STATS: ",
+                        f'len(merged_tuples)= {len(merged_tuples)}, '
+                        f'total_area= {total_area:.2f}. '
+                        f'Runtime= {time.time() - t0:.2f}s. ',
+                    )
+
+                t0 = time.time()
+                intarea = 0  # total area covered by instrument field tiles
+                intprob = 0  # total probability covered by instrument field tiles
+
+                for i, t in enumerate(localization_tiles):
+                    # has True values where tile t has any overlap with one of the fields
+                    overlap_array = np.logical_and(
+                        t.healpix.lower <= field_upper_bounds,
+                        t.healpix.upper >= field_lower_bounds,
+                    )
+                    overlap_indices = np.where(overlap_array)[0]
+
+                    # only add area/prob if there's any overlap
+                    overlap = 0
+                    if len(overlap_indices) > 0:
+                        # print(f'sum(overlap_array): {np.sum(overlap_array)}')
+                        lower_upper = zip(
+                            field_lower_bounds[overlap_indices],
+                            field_upper_bounds[overlap_indices],
+                        )
+                        # tuples of (lower, upper) for all fields that overlap with tile t
+                        new_fields = [(tup[0], tup[1]) for tup in lower_upper]
+
+                        # combine any overlapping fields
+                        output_fields = combine_healpix_tuples(new_fields)
+
+                        # get the area of the combined fields that overlaps with tile t
+                        for lower, upper in output_fields:
+                            mx = np.minimum(t.healpix.upper, upper)
+                            mn = np.maximum(t.healpix.lower, lower)
+                            overlap += mx - mn
+
+                    intarea += overlap
+                    intprob += t.probdensity * overlap
+
+                # sum_probability *= ha.constants.PIXEL_AREA
+                intarea *= ha.constants.PIXEL_AREA
+                intprob *= ha.constants.PIXEL_AREA
+
+                if stats_logging:
+                    log(
+                        "STATS: ",
+                        f'area= {intarea}, prob= {intprob}. Runtime= {time.time() - t0:.2f}s. ',
+                    )
+
+            elif stats_method == 'db':
+                # below is old code that is too slow to use at scale
+                # we may be able to speed it up at some point, then
+                # it may be good to have this as reference for what
+                # the queries should look like
+
+                t0 = time.time()
+                obs_subquery = obs_query.subquery()
+                fields_query = sa.select(InstrumentField.id).join(
+                    obs_subquery,
+                    InstrumentField.id == obs_subquery.c.instrument_field_id,
+                )
+                field_ids = session.scalars(fields_query).unique().all()
+
+                union = (
+                    sa.select(
+                        ha.func.union(InstrumentFieldTile.healpix).label('healpix')
+                    )
+                    .where(InstrumentFieldTile.instrument_field_id.in_(field_ids))
+                    .distinct()
+                    .subquery()
+                )
+
+                area = sa.func.sum(union.columns.healpix.area)
+                prob = sa.func.sum(
+                    LocalizationTile.probdensity
+                    * (union.columns.healpix * LocalizationTile.healpix).area
+                )
+                query_area = sa.select(area).filter(
+                    LocalizationTile.localization_id == localization.id,
+                    LocalizationTile.probdensity >= min_probdensity,
+                    union.columns.healpix.overlaps(LocalizationTile.healpix),
+                )
+                query_prob = sa.select(prob).filter(
+                    LocalizationTile.localization_id == localization.id,
+                    LocalizationTile.probdensity >= min_probdensity,
+                    union.columns.healpix.overlaps(LocalizationTile.healpix),
+                )
+                intprob = session.execute(query_prob).scalar_one()
+                intarea = session.execute(query_area).scalar_one()
+
+                if intprob is None:
+                    intprob = 0.0
+                if intarea is None:
+                    intarea = 0.0
+
+                if stats_logging:
+                    log(
+                        f'STATS: area= {intarea}, prob= {intprob}. Runtime= {time.time() - t0:.2f}s. '
+                    )
+            else:
+                raise ValueError(
+                    f'Invalid stats_method: {stats_method}. Use "db" or "python"'
+                )
+
+    t0 = time.time()
     total_matches = session.scalar(sa.select(sa.func.count()).select_from(obs_query))
+
+    order_by = None
+    if sort_by is not None:
+        if sort_by == "obstime":
+            order_by = (
+                Observation.obstime
+                if sort_order == "asc"
+                else Observation.obstime.desc()
+            )
+        elif sort_by == "observation_id":
+            order_by = (
+                Observation.observation_id
+                if sort_order == "asc"
+                else Observation.observation_id.desc()
+            )
+        elif sort_by == "exposure_time":
+            order_by = (
+                Observation.exposure_time
+                if sort_order == "asc"
+                else Observation.exposure_time.desc()
+            )
+        elif sort_by == "seeing":
+            order_by = (
+                Observation.seeing if sort_order == "asc" else Observation.seeing.desc()
+            )
+        elif sort_by == "airmass":
+            order_by = (
+                Observation.airmass
+                if sort_order == "asc"
+                else Observation.airmass.desc()
+            )
+        elif sort_by == "limmag":
+            order_by = (
+                Observation.limmag if sort_order == "asc" else Observation.limmag.desc()
+            )
+        elif sort_by == "filt":
+            order_by = (
+                Observation.filt if sort_order == "asc" else Observation.filt.desc()
+            )
+        elif sort_by == "instrument_name":
+            order_by = (
+                Observation.instrument_id
+                if sort_order == "asc"
+                else Observation.instrument_id.desc()
+            )
+        elif sort_by == "target_name":
+            order_by = (
+                Observation.target_name
+                if sort_order == "asc"
+                else Observation.target_name.desc()
+            )
+        elif sort_by == "queue_name":
+            order_by = (
+                Observation.queue_name
+                if sort_order == "asc"
+                else Observation.queue_name.desc()
+            )
+        elif sort_by == "validity_window_start":
+            order_by = (
+                Observation.validity_window_start
+                if sort_order == "asc"
+                else Observation.validity_window_start.desc()
+            )
+        elif sort_by == "validity_window_end":
+            order_by = (
+                Observation.validity_window_end
+                if sort_order == "asc"
+                else Observation.validity_window_end.desc()
+            )
+        else:
+            raise ValueError(f'Sort column {sort_by} not known.')
+
+    if order_by is None:
+        order_by = Observation.instrument_id.desc()
+    obs_query = obs_query.order_by(order_by)
+
     if n_per_page is not None:
         obs_query = (
             obs_query.distinct()
@@ -452,7 +668,9 @@ def get_observations(
             .offset((page_number - 1) * n_per_page)
         )
 
+    t0 = time.time()
     observations = session.scalars(obs_query).all()
+
     observations_list = []
     for o in observations:
         obs_dict = o.to_dict()
@@ -689,6 +907,21 @@ class ObservationHandler(BaseHandler):
               description: |
                 Boolean indicating whether to include integrated probability and area. Defaults to false.
             - in: query
+              name: statsMethod
+              nullable: true
+              schema:
+                type: string
+              description: |
+                Method to use for computing integrated probability and area. Defaults to 'python'.
+                To use the database/postgres based method, use 'db'.
+            - in: query
+              name: statsLogging
+              nullable: true
+              schema:
+                type: boolean
+              description: |
+                Boolean indicating whether to log the stats computation time. Defaults to false.
+            - in: query
               name: includeGeoJSON
               nullable: true
               schema:
@@ -718,6 +951,20 @@ class ObservationHandler(BaseHandler):
               schema:
                 type: integer
               description: Page number for paginated query results. Defaults to 1
+            - in: query
+              name: sortBy
+              nullable: true
+              schema:
+                type: string
+              description: |
+                The field to sort by.
+            - in: query
+              name: sortOrder
+              nullable: true
+              schema:
+                type: string
+              description: |
+                The sort order - either "asc" or "desc". Defaults to "asc"
           responses:
             200:
               content:
@@ -737,10 +984,15 @@ class ObservationHandler(BaseHandler):
         localization_name = self.get_query_argument('localizationName', None)
         localization_cumprob = self.get_query_argument("localizationCumprob", 0.95)
         return_statistics = self.get_query_argument("returnStatistics", False)
+        stats_method = self.get_query_argument("statsMethod", "python")
+        stats_logging = self.get_query_argument("statsLogging", False)
         includeGeoJSON = self.get_query_argument("includeGeoJSON", False)
         observation_status = self.get_query_argument("observationStatus", 'executed')
         page_number = self.get_query_argument("pageNumber", 1)
         n_per_page = self.get_query_argument("numPerPage", 100)
+
+        sort_by = self.get_query_argument("sortBy", None)
+        sort_order = self.get_query_argument("sortOrder", "asc")
 
         try:
             page_number = int(page_number)
@@ -776,10 +1028,14 @@ class ObservationHandler(BaseHandler):
                 localization_name=localization_name,
                 localization_cumprob=localization_cumprob,
                 return_statistics=return_statistics,
+                stats_method=stats_method,
+                stats_logging=stats_logging,
                 includeGeoJSON=includeGeoJSON,
                 observation_status=observation_status,
                 n_per_page=n_per_page,
                 page_number=page_number,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
 
             return self.success(data=data)
@@ -942,137 +1198,6 @@ class ObservationASCIIFileHandler(BaseHandler):
         return self.success()
 
 
-class ObservationGCNHandler(BaseHandler):
-    @auth_or_token
-    async def get(self, instrument_id):
-        """
-        ---
-          description: Get a GCN-izable summary of the observations.
-          tags:
-            - observations
-          parameters:
-            - in: path
-              name: instrument_id
-              required: true
-              schema:
-                type: string
-              description: |
-                ID for the instrument to submit
-            - in: query
-              name: startDate
-              required: true
-              schema:
-                type: string
-              description: Filter by start date
-            - in: query
-              name: endDate
-              required: true
-              schema:
-                type: string
-              description: Filter by end date
-            - in: query
-              name: localizationDateobs
-              schema:
-                type: string
-              description: |
-                Event time in ISO 8601 format (`YYYY-MM-DDTHH:MM:SS.sss`).
-                Each localization is associated with a specific GCNEvent by
-                the date the event happened, and this date is used as a unique
-                identifier. It can be therefore found as Localization.dateobs,
-                queried from the /api/localization endpoint or dateobs in the
-                GcnEvent page table.
-            - in: query
-              name: localizationName
-              schema:
-                type: string
-              description: |
-                Name of localization / skymap to use.
-                Can be found in Localization.localization_name queried from
-                /api/localization endpoint or skymap name in GcnEvent page
-                table.
-            - in: query
-              name: localizationCumprob
-              schema:
-                type: number
-              description: |
-                Cumulative probability up to which to include fields.
-                Defaults to 0.95.
-          responses:
-            200:
-              content:
-                application/json:
-                  schema: ArrayOfExecutedObservations
-            400:
-              content:
-                application/json:
-                  schema: Error
-        """
-
-        start_date = self.get_query_argument('startDate')
-        end_date = self.get_query_argument('endDate')
-        localization_dateobs = self.get_query_argument('localizationDateobs', None)
-        localization_name = self.get_query_argument('localizationName', None)
-        localization_cumprob = self.get_query_argument("localizationCumprob", 0.95)
-
-        if start_date is None:
-            return self.error(message="Missing start_date")
-
-        if end_date is None:
-            return self.error(message="Missing end_date")
-
-        start_date = arrow.get(start_date.strip()).datetime
-        end_date = arrow.get(end_date.strip()).datetime
-
-        with self.Session() as session:
-
-            stmt = Instrument.select(self.current_user).where(
-                Instrument.id == instrument_id
-            )
-            instrument = session.scalars(stmt).first()
-
-            if instrument is None:
-                return self.error(message=f"Invalid instrument ID {instrument_id}")
-
-            data = get_observations(
-                session,
-                start_date,
-                end_date,
-                telescope_name=instrument.telescope.name,
-                instrument_name=instrument.name,
-                localization_dateobs=localization_dateobs,
-                localization_name=localization_name,
-                localization_cumprob=localization_cumprob,
-            )
-
-            observations = data["observations"]
-            num_observations = len(observations)
-            if num_observations == 0:
-                return self.error('Need at least one observation to produce a GCN')
-
-            start_observation = astropy.time.Time(
-                min(obs["obstime"] for obs in observations), format='datetime'
-            )
-            unique_filters = list({obs["filt"] for obs in observations})
-            total_time = sum(obs["exposure_time"] for obs in observations)
-            probability = data["probability"]
-            area = data["area"]
-
-            stmt = GcnEvent.select(self.current_user).where(
-                GcnEvent.dateobs == localization_dateobs
-            )
-            event = session.scalars(stmt).first()
-            trigger_time = astropy.time.Time(event.dateobs, format='datetime')
-            dt = start_observation.datetime - event.dateobs
-
-            content = f"""
-                SUBJECT: Follow-up of {event.gcn_notices[0].stream} trigger {trigger_time.isot} with {instrument.name}.
-
-                We observed the localization region of {event.gcn_notices[0].stream} trigger {trigger_time.isot} UTC with {instrument.name} on the {instrument.telescope.name}. We obtained a total of {num_observations} images covering {",".join(unique_filters)} bands for a total of {total_time} seconds. The observations covered {area:.1f} square degrees beginning at {start_observation.isot} ({humanize.naturaldelta(dt)} after the burst trigger time) corresponding to ~{int(100 * probability)}% of the probability enclosed in the localization region.
-                """
-
-            return self.success(data=content)
-
-
 class ObservationExternalAPIHandler(BaseHandler):
     @permissions(['Upload data'])
     def post(self):
@@ -1097,6 +1222,14 @@ class ObservationExternalAPIHandler(BaseHandler):
         """
 
         data = self.get_json()
+        if 'start_date' in data:
+            data['start_date'] = arrow.get(data['start_date'].strip()).datetime
+        else:
+            data['start_date'] = Time.now() - TimeDelta(3 * u.day)
+        if 'end_date' in data:
+            data['end_date'] = arrow.get(data['end_date'].strip()).datetime
+        else:
+            data['end_date'] = Time.now()
 
         try:
             data = ObservationExternalAPIHandlerPost.load(data)
@@ -1108,34 +1241,40 @@ class ObservationExternalAPIHandler(BaseHandler):
         data["requester_id"] = self.associated_user_object.id
         data["last_modified_by_id"] = self.associated_user_object.id
         data['allocation_id'] = int(data['allocation_id'])
-        data['start_date'] = arrow.get(data['start_date'].strip()).datetime
-        data['end_date'] = arrow.get(data['end_date'].strip()).datetime
 
-        allocation = Allocation.get_if_accessible_by(
-            data['allocation_id'], self.current_user, raise_if_none=True
-        )
-        instrument = allocation.instrument
+        with self.Session() as session:
 
-        if instrument.api_classname_obsplan is None:
-            return self.error('Instrument has no remote observation plan API.')
+            allocation = session.scalars(
+                Allocation.select(session.user_or_token).where(
+                    Allocation.id == data['allocation_id']
+                )
+            ).first()
+            if allocation is None:
+                return self.error(
+                    f"Cannot find Allocation with ID: {data['allocation_id']}"
+                )
+            instrument = allocation.instrument
 
-        if not instrument.api_class_obsplan.implements()['retrieve']:
-            return self.error(
-                'Submitting executed observation plan requests to this Instrument is not available.'
-            )
+            if instrument.api_classname_obsplan is None:
+                return self.error('Instrument has no remote observation plan API.')
 
-        try:
-            # we now retrieve and commit to the database the
-            # executed observations
-            instrument.api_class_obsplan.retrieve(
-                allocation, data['start_date'], data['end_date']
-            )
-            self.push_notification(
-                'Observation ingestion in progress. Should be available soon.'
-            )
-            return self.success()
-        except Exception as e:
-            return self.error(f"Error in querying instrument API: {e}")
+            if not instrument.api_class_obsplan.implements()['retrieve']:
+                return self.error(
+                    'Submitting executed observation plan requests to this Instrument is not available.'
+                )
+
+            try:
+                # we now retrieve and commit to the database the
+                # executed observations
+                instrument.api_class_obsplan.retrieve(
+                    allocation, data['start_date'], data['end_date']
+                )
+                self.push_notification(
+                    'Observation ingestion in progress. Should be available soon.'
+                )
+                return self.success()
+            except Exception as e:
+                return self.error(f"Error in querying instrument API: {e}")
 
     @permissions(['Upload data'])
     def get(self, allocation_id):
@@ -1202,35 +1341,43 @@ class ObservationExternalAPIHandler(BaseHandler):
         data['start_date'] = start_date
         data['end_date'] = end_date
 
-        allocation = Allocation.get_if_accessible_by(
-            data['allocation_id'], self.current_user, raise_if_none=True
-        )
-        instrument = allocation.instrument
-
-        if instrument.api_classname_obsplan is None:
-            return self.error('Instrument has no remote observation plan API.')
-
-        if not instrument.api_class_obsplan.implements()['queued']:
-            return self.error(
-                'Submitting executed observation plan requests to this Instrument is not available.'
-            )
-
-        try:
-            # we now retrieve and commit to the database the
-            # executed observations
-            queue_names = instrument.api_class_obsplan.queued(
-                allocation,
-                data['start_date'],
-                data['end_date'],
-                queues_only=queues_only,
-            )
-            if not queues_only:
-                self.push_notification(
-                    'Planned observation ingestion in progress. Should be available soon.'
+        with self.Session() as session:
+            allocation = session.scalars(
+                Allocation.select(session.user_or_token).where(
+                    Allocation.id == data['allocation_id']
                 )
-            return self.success(data={'queue_names': queue_names})
-        except Exception as e:
-            return self.error(f"Error in querying instrument API: {e}")
+            ).first()
+            if allocation is None:
+                return self.error(
+                    f"Cannot find Allocation with ID: {data['allocation_id']}"
+                )
+
+            instrument = allocation.instrument
+
+            if instrument.api_classname_obsplan is None:
+                return self.error('Instrument has no remote observation plan API.')
+
+            if not instrument.api_class_obsplan.implements()['queued']:
+                return self.error(
+                    'Submitting executed observation plan requests to this Instrument is not available.'
+                )
+
+            try:
+                # we now retrieve and commit to the database the
+                # executed observations
+                queue_names = instrument.api_class_obsplan.queued(
+                    allocation,
+                    data['start_date'],
+                    data['end_date'],
+                    queues_only=queues_only,
+                )
+                if not queues_only:
+                    self.push_notification(
+                        'Planned observation ingestion in progress. Should be available soon.'
+                    )
+                return self.success(data={'queue_names': queue_names})
+            except Exception as e:
+                return self.error(f"Error in querying instrument API: {e}")
 
     @permissions(['Upload data'])
     def delete(self, allocation_id):
@@ -1274,25 +1421,33 @@ class ObservationExternalAPIHandler(BaseHandler):
         data["last_modified_by_id"] = self.associated_user_object.id
         data['allocation_id'] = allocation_id
 
-        allocation = Allocation.get_if_accessible_by(
-            data['allocation_id'], self.current_user, raise_if_none=True
-        )
-        instrument = allocation.instrument
+        with self.Session() as session:
+            allocation = session.scalars(
+                Allocation.select(session.user_or_token).where(
+                    Allocation.id == data['allocation_id']
+                )
+            ).first()
+            if allocation is None:
+                return self.error(
+                    f"Cannot find Allocation with ID: {data['allocation_id']}"
+                )
 
-        if instrument.api_classname_obsplan is None:
-            return self.error('Instrument has no remote observation plan API.')
+            instrument = allocation.instrument
 
-        if not instrument.api_class_obsplan.implements()['remove_queue']:
-            return self.error('Cannot delete queues from this Instrument.')
+            if instrument.api_classname_obsplan is None:
+                return self.error('Instrument has no remote observation plan API.')
 
-        try:
-            # we now retrieve and commit to the database the
-            # executed observations
-            instrument.api_class_obsplan.remove_queue(
-                allocation, queue_name, self.associated_user_object.username
-            )
-        except Exception as e:
-            return self.error(f"Error in querying instrument API: {e}")
+            if not instrument.api_class_obsplan.implements()['remove_queue']:
+                return self.error('Cannot delete queues from this Instrument.')
+
+            try:
+                # we now retrieve and commit to the database the
+                # executed observations
+                instrument.api_class_obsplan.remove_queue(
+                    allocation, queue_name, self.associated_user_object.username
+                )
+            except Exception as e:
+                return self.error(f"Error in querying instrument API: {e}")
 
 
 class ObservationTreasureMapHandler(BaseHandler):
@@ -1973,35 +2128,35 @@ class ObservationSimSurveyPlotHandler(BaseHandler):
                 schema: Success
         """
 
-        survey_efficiency_analysis = (
-            SurveyEfficiencyForObservations.get_if_accessible_by(
-                survey_efficiency_analysis_id, self.current_user
+        with self.Session() as session:
+            survey_efficiency_analysis = session.scalars(
+                SurveyEfficiencyForObservations.select(session.user_or_token).where(
+                    SurveyEfficiencyForObservations.id == survey_efficiency_analysis_id
+                )
+            ).first()
+            if survey_efficiency_analysis is None:
+                return self.error(
+                    f'Missing survey_efficiency_analysis for id {survey_efficiency_analysis_id}'
+                )
+
+            if survey_efficiency_analysis.lightcurves is None:
+                return self.error(
+                    f'survey_efficiency_analysis for id {survey_efficiency_analysis_id} not complete'
+                )
+
+            output_format = 'pdf'
+            simsurvey_analysis = functools.partial(
+                observation_simsurvey_plot,
+                lcs=json.loads(survey_efficiency_analysis.lightcurves),
+                output_format=output_format,
             )
-        )
 
-        if survey_efficiency_analysis is None:
-            return self.error(
-                f'Missing survey_efficiency_analysis for id {survey_efficiency_analysis_id}'
+            self.push_notification(
+                'Simsurvey analysis in progress. Should be available soon.'
             )
+            rez = await IOLoop.current().run_in_executor(None, simsurvey_analysis)
 
-        if survey_efficiency_analysis.lightcurves is None:
-            return self.error(
-                f'survey_efficiency_analysis for id {survey_efficiency_analysis_id} not complete'
-            )
+            filename = rez["name"]
+            data = io.BytesIO(rez["data"])
 
-        output_format = 'pdf'
-        simsurvey_analysis = functools.partial(
-            observation_simsurvey_plot,
-            lcs=json.loads(survey_efficiency_analysis.lightcurves),
-            output_format=output_format,
-        )
-
-        self.push_notification(
-            'Simsurvey analysis in progress. Should be available soon.'
-        )
-        rez = await IOLoop.current().run_in_executor(None, simsurvey_analysis)
-
-        filename = rez["name"]
-        data = io.BytesIO(rez["data"])
-
-        await self.send_file(data, filename, output_type=output_format)
+            await self.send_file(data, filename, output_type=output_format)

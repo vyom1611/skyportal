@@ -16,8 +16,9 @@ from baselayer.app.models import (
     CustomUserAccessControl,
 )
 
+from .catalog import CatalogQuery
 from .group import Group, GroupUser
-from .followup_request import FollowupRequest
+from .followup_request import DefaultFollowupRequest, FollowupRequest
 from .observation_plan import DefaultObservationPlanRequest, ObservationPlanRequest
 from .stream import Stream
 from .invitation import Invitation
@@ -157,6 +158,11 @@ User.mmadetector_spectra = relationship(
     doc='MMADetectorSpectra uploaded by this User.',
     back_populates='owner',
 )
+User.mmadetector_time_intervals = relationship(
+    'MMADetectorTimeInterval',
+    doc='MMADetectorTimeInterval uploaded by this User.',
+    back_populates='owner',
+)
 User.comments_on_spectra = relationship(
     "CommentOnSpectrum",
     back_populates="author",
@@ -178,6 +184,13 @@ User.annotations_on_spectra = relationship(
     cascade="delete",
     passive_deletes=True,
 )
+User.annotations_on_photometry = relationship(
+    "AnnotationOnPhotometry",
+    back_populates="author",
+    foreign_keys="AnnotationOnPhotometry.author_id",
+    cascade="delete",
+    passive_deletes=True,
+)
 User.comments_on_gcns = relationship(
     "CommentOnGCN",
     back_populates="author",
@@ -192,12 +205,33 @@ User.reminders_on_gcns = relationship(
     cascade="delete",
     passive_deletes=True,
 )
+User.comments_on_earthquakes = relationship(
+    "CommentOnEarthquake",
+    back_populates="author",
+    foreign_keys="CommentOnEarthquake.author_id",
+    cascade="delete",
+    passive_deletes=True,
+)
+User.reminders_on_earthquakes = relationship(
+    "ReminderOnEarthquake",
+    back_populates="user",
+    foreign_keys="ReminderOnEarthquake.user_id",
+    cascade="delete",
+    passive_deletes=True,
+)
 User.default_observationplan_requests = relationship(
     'DefaultObservationPlanRequest',
     back_populates='requester',
     passive_deletes=True,
     doc="The default observation plan requests this User has made.",
     foreign_keys=[DefaultObservationPlanRequest.requester_id],
+)
+User.catalog_queries = relationship(
+    'CatalogQuery',
+    back_populates='requester',
+    passive_deletes=True,
+    doc="The catalog queries this User has made.",
+    foreign_keys=[CatalogQuery.requester_id],
 )
 User.comments_on_shifts = relationship(
     "CommentOnShift",
@@ -219,6 +253,13 @@ User.followup_requests = relationship(
     passive_deletes=True,
     doc="The follow-up requests this User has made.",
     foreign_keys=[FollowupRequest.requester_id],
+)
+User.default_followup_requests = relationship(
+    'DefaultFollowupRequest',
+    back_populates='requester',
+    passive_deletes=True,
+    doc="The default follow-up requests this User has made.",
+    foreign_keys=[DefaultFollowupRequest.requester_id],
 )
 User.observationplan_requests = relationship(
     'ObservationPlanRequest',
@@ -261,6 +302,13 @@ User.assignments = relationship(
     doc="Objs the User has assigned to ObservingRuns.",
     foreign_keys="ClassicalAssignment.requester_id",
 )
+User.recurring_apis = relationship(
+    "RecurringAPI",
+    back_populates="owner",
+    foreign_keys="RecurringAPI.owner_id",
+    cascade="delete",
+    passive_deletes=True,
+)
 User.gcnevents = relationship(
     'GcnEvent',
     back_populates='sent_by',
@@ -273,11 +321,35 @@ User.gcnnotices = relationship(
     passive_deletes=True,
     doc='The GcnNotices saved by this user',
 )
+User.gcnsummaries = relationship(
+    'GcnSummary',
+    back_populates='sent_by',
+    passive_deletes=True,
+    doc='The gcnsummaries saved by this user',
+)
 User.gcntags = relationship(
     'GcnTag',
     back_populates='sent_by',
     passive_deletes=True,
     doc='The gcntags saved by this user',
+)
+User.gcnproperties = relationship(
+    'GcnProperty',
+    back_populates='sent_by',
+    passive_deletes=True,
+    doc='The gcnproperties saved by this user',
+)
+User.earthquakeevents = relationship(
+    'EarthquakeEvent',
+    back_populates='sent_by',
+    passive_deletes=True,
+    doc='The EarthquakeEvents saved by this user',
+)
+User.earthquakenotices = relationship(
+    'EarthquakeNotice',
+    back_populates='sent_by',
+    passive_deletes=True,
+    doc='The EarthquakeNotices saved by this user',
 )
 User.listings = relationship(
     'Listing',
@@ -290,6 +362,18 @@ User.localizations = relationship(
     back_populates='sent_by',
     passive_deletes=True,
     doc='The localizations saved by this user',
+)
+User.localizationtags = relationship(
+    'LocalizationTag',
+    back_populates='sent_by',
+    passive_deletes=True,
+    doc='The localizationtags saved by this user',
+)
+User.localizationproperties = relationship(
+    'LocalizationProperty',
+    back_populates='sent_by',
+    passive_deletes=True,
+    doc='The localizationproperties saved by this user',
 )
 User.notifications = relationship(
     "UserNotification",
@@ -354,11 +438,11 @@ def delete_single_user_group(mapper, connection, target):
 def update_single_user_group(mapper, connection, target):
 
     # Update single user group name if needed
-    @event.listens_for(DBSession(), "after_flush_postexec", once=True)
+    @event.listens_for(inspect(target).session, "after_flush_postexec", once=True)
     def receive_after_flush(session, context):
         single_user_group = target.single_user_group
         single_user_group.name = slugify(target.username)
-        DBSession().merge(single_user_group)
+        session.merge(single_user_group)
 
 
 @property

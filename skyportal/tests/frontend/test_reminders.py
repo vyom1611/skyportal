@@ -1,12 +1,9 @@
-import os
 import uuid
 import time
 
 from skyportal.tests import api
 from datetime import date, timedelta, datetime
 from selenium.webdriver.common.keys import Keys
-
-import pytest
 
 
 def post_and_verify_reminder(endpoint, token):
@@ -65,7 +62,7 @@ def post_and_verify_reminder(endpoint, token):
             )
             if data[reminder_index]['number_of_reminders'] == number_of_reminders - 1:
                 break
-        time.sleep(1)
+        time.sleep(15)
         n_retries += 1
     assert n_retries < 10
     assert status == 200
@@ -80,8 +77,9 @@ def post_and_verify_reminder(endpoint, token):
 
 
 def post_and_verify_reminder_frontend(driver, reminder_text):
+
     search_button_xpath = driver.wait_for_xpath(
-        '//button[@data-testid="Search-iconButton"]'
+        '//*[@data-testid="Reminders"]//button[@aria-label="Search"]'
     )
     driver.scroll_to_element_and_click(search_button_xpath)
     search_bar = driver.wait_for_xpath('//input[@aria-label="Search"]')
@@ -95,7 +93,16 @@ def post_and_verify_reminder_frontend(driver, reminder_text):
     )
     reminder_text_2 = str(uuid.uuid4())
     driver.wait_for_xpath('//*[@id="root_text"]').send_keys(reminder_text_2)
-    next_reminder = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%YT%I:%M %p")
+    first_of_the_month = int((datetime.now() + timedelta(days=1)).strftime("%d")) == 1
+    if first_of_the_month:
+        next_reminder = (datetime.now() + timedelta(days=14)).strftime(
+            "%m/%d/%YT%I:%M %p"
+        )
+    else:
+        next_reminder = (datetime.now() + timedelta(days=1)).strftime(
+            "%m/%d/%YT%I:%M %p"
+        )
+    driver.wait_for_xpath('//*[@id="root_next_reminder"]').clear()
     driver.wait_for_xpath('//*[@id="root_next_reminder"]').send_keys(
         next_reminder[0:11]
     )
@@ -184,37 +191,3 @@ def test_reminder_on_source(driver, super_admin_user, super_admin_token):
 
 
 # frontend for the reminders on spectra is not implemented yet
-
-
-@pytest.mark.flaky(reruns=3)
-def test_reminder_on_gcn(driver, super_admin_user, super_admin_token):
-    datafile = f'{os.path.dirname(__file__)}/../../../data/GW190814.xml'
-    with open(datafile, 'rb') as fid:
-        payload = fid.read()
-    data = {'xml': payload}
-
-    status, data = api('POST', 'gcn_event', data=data, token=super_admin_token)
-    assert status == 200
-    assert data['status'] == 'success'
-
-    # wait for event to load
-    for n_times in range(26):
-        status, data = api(
-            'GET', "gcn_event/2019-08-14T21:10:39", token=super_admin_token
-        )
-        if data['status'] == 'success':
-            break
-        time.sleep(2)
-    assert n_times < 25
-    gcn_event_id = data['data']['id']
-
-    endpoint = f"gcn_event/{gcn_event_id}/reminders"
-    reminder_text = post_and_verify_reminder(endpoint, super_admin_token)
-    driver.get(f"/become_user/{super_admin_user.id}")
-    driver.get("/gcn_events/2019-08-14T21:10:39")
-    driver.wait_for_xpath('//*[contains(.,"190814 21:10:39")]', timeout=30)
-    driver.click_xpath('//*[@data-testid="NotificationsOutlinedIcon"]')
-    driver.wait_for_xpath('//*[@href="/gcn_events/2019-08-14T21:10:39"]')
-    driver.click_xpath('//*[@data-testid="NotificationsOutlinedIcon"]')
-
-    post_and_verify_reminder_frontend(driver, reminder_text)

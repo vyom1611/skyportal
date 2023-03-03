@@ -92,8 +92,11 @@ def commit_photometry(json_response, altdata, request_id, instrument_id, user_id
         User,
     )
 
-    Session = scoped_session(sessionmaker(bind=DBSession.session_factory.kw["bind"]))
-    session = Session()
+    Session = scoped_session(sessionmaker())
+    if Session.registry.has():
+        session = Session()
+    else:
+        session = Session(bind=DBSession.session_factory.kw["bind"])
 
     try:
         request = session.query(FollowupRequest).get(request_id)
@@ -174,6 +177,7 @@ def commit_photometry(json_response, altdata, request_id, instrument_id, user_id
             inplace=True,
         )
         df['magsys'] = 'ab'
+        df['origin'] = 'fp'
 
         data_out = {
             'obj_id': request.obj_id,
@@ -201,7 +205,10 @@ def commit_photometry(json_response, altdata, request_id, instrument_id, user_id
         )
 
     except Exception as e:
-        return log(f"Unable to commit photometry for {request_id}: {e}")
+        log(f"Unable to commit photometry for {request_id}: {e}")
+    finally:
+        session.close()
+        Session.remove()
 
 
 class ATLASAPI(FollowUpAPI):
@@ -246,6 +253,9 @@ class ATLASAPI(FollowUpAPI):
 
         r = requests.post(facility_microservice_url, json=request_body)
         log(f'Response for request {request.id}: {r.text}')
+        data_out = r.json()
+        if 'message' in data_out:
+            request.status = data_out['message']
 
         transaction = FacilityTransaction(
             request=http.serialize_requests_request(r.request),
@@ -259,7 +269,7 @@ class ATLASAPI(FollowUpAPI):
 
     # subclasses *must* implement the method below
     @staticmethod
-    def submit(request, session):
+    def submit(request, session, **kwargs):
 
         """Submit a forced photometry request to ATLAS.
 

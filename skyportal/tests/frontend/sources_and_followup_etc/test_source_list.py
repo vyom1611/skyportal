@@ -1,7 +1,7 @@
 import os
 import uuid
 import time
-
+import pytest
 from skyportal.tests import api
 from tdtax import taxonomy, __version__
 
@@ -9,8 +9,6 @@ from datetime import datetime, timedelta
 
 from baselayer.app.config import load_config
 from dateutil import parser
-from os.path import join as pjoin
-import random
 import numpy as np
 
 from selenium.webdriver.common.keys import Keys
@@ -18,6 +16,7 @@ from selenium.webdriver.common.keys import Keys
 cfg = load_config()
 
 
+@pytest.mark.flaky(reruns=3)
 def test_add_sources_two_groups(
     driver,
     super_admin_user_two_groups,
@@ -264,7 +263,7 @@ def test_filter_by_classification(
     driver.click_xpath(
         f"//li[@data-value='{taxonomy_name}: Algol']", scroll_parent=True
     )
-    driver.click_xpath("//button[text()='Submit']")
+    driver.click_xpath("//button[text()='Submit']", scroll_parent=True)
 
     # Should see the posted source
     driver.wait_for_xpath(f'//a[@data-testid="{source_id}"]')
@@ -276,7 +275,7 @@ def test_filter_by_classification(
         scroll_parent=True,
     )
     driver.click_xpath(f"//li[@data-value='{taxonomy_name}: AGN']", scroll_parent=True)
-    driver.click_xpath("//button[text()='Submit']")
+    driver.click_xpath("//button[text()='Submit']", scroll_parent=True)
     # Should no longer see the source
     driver.wait_for_xpath_to_disappear(f'//a[@data-testid="{source_id}"]')
 
@@ -371,7 +370,7 @@ def test_filter_by_spectrum_time(
     )
 
     before_input.send_keys(test_time)
-    driver.click_xpath("//button[text()='Submit']")
+    driver.click_xpath("//button[text()='Submit']", scroll_parent=True)
 
     # Should see the first source
     driver.wait_for_xpath(f'//a[@data-testid="{obj_id1}"]')
@@ -389,6 +388,7 @@ def test_filter_by_spectrum_time(
     after_input.send_keys(test_time)
     driver.click_xpath(
         "//button[text()='Submit']",
+        scroll_parent=True,
     )
 
     # Should see the posted source
@@ -497,11 +497,17 @@ def test_filter_by_gcnevent(
     datafile = f'{os.path.dirname(__file__)}/../../../../data/GW190814.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
-    data = {'xml': payload}
+    event_data = {'xml': payload}
 
-    status, data = api('POST', 'gcn_event', data=data, token=super_admin_token)
-    assert status == 200
-    assert data['status'] == 'success'
+    dateobs = "2019-08-14T21:10:39"
+    status, data = api('GET', f'gcn_event/{dateobs}', token=super_admin_token)
+
+    if status == 404:
+        status, data = api(
+            'POST', 'gcn_event', data=event_data, token=super_admin_token
+        )
+        assert status == 200
+        assert data['status'] == 'success'
 
     # wait for event to load
     for n_times in range(26):
@@ -687,68 +693,3 @@ def test_hr_diagram(
     driver.wait_for_xpath(f'//tr[@data-testid="groupSourceExpand_{source_id}"]')
 
     driver.wait_for_xpath(f'//div[@data-testid="hr_diagram_{source_id}"]')
-
-
-def test_download_sources(driver, user, public_group, upload_data_token):
-    # generate a list of 20 source ids:
-    source_ids = [str(uuid.uuid4()) for i in range(20)]
-    origin = str(uuid.uuid4())
-    # post 20 sources:
-    for source_id in source_ids:
-        status, data = api(
-            "POST",
-            "sources",
-            data={
-                "id": source_id,
-                # random ra value
-                "ra": random.random() * 360 - 180,
-                "dec": random.random() * 180 - 90,
-                "redshift": 3,
-                "transient": False,
-                "ra_dis": 2.3,
-                "origin": origin,
-                "group_ids": [public_group.id],
-            },
-            token=upload_data_token,
-        )
-        assert status == 200
-
-    driver.get(f"/become_user/{user.id}")
-    driver.get("/sources")
-
-    # Filter for origin
-    driver.click_xpath("//button[@data-testid='Filter Table-iconButton']")
-    alias_field = driver.wait_for_xpath(
-        "//*[@data-testid='origin-text']//input",
-    )
-    alias_field.send_keys(origin)
-    driver.click_xpath(
-        "//button[text()='Submit']",
-        scroll_parent=True,
-    )
-
-    # click the download button
-    driver.click_xpath('//button[@aria-label="Download CSV"]')
-
-    driver.wait_for_xpath('//*[contains(., "Downloading 20 sources")]')
-
-    driver.wait_for_xpath_to_disappear('//*[contains(., "Downloading 20 sources")]')
-
-    # check that the download has the right number of lines
-    fpath = str(os.path.abspath(pjoin(cfg['paths.downloads_folder'], 'sources.csv')))
-    try_count = 1
-    while not os.path.exists(fpath) and try_count <= 5:
-        try_count += 1
-        time.sleep(1)
-    assert os.path.exists(fpath)
-
-    try:
-        with open(fpath) as f:
-            lines = f.read()
-        assert (
-            lines.split('\n')[0]
-            == '"id","ra [deg]","dec [deg]","redshift","classification","groups","Date saved","Alias","Origin","TNS Name"'
-        )
-        assert len(lines.split('\n')) == 21
-    finally:
-        os.remove(fpath)

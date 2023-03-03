@@ -1,17 +1,21 @@
 from .acls import ACLHandler, UserACLHandler
 from .allocation import AllocationHandler, AllocationReportHandler
 from .analysis import (
+    AnalysisUploadOnlyHandler,
     AnalysisServiceHandler,
     AnalysisHandler,
     AnalysisProductsHandler,
+    DefaultAnalysisHandler,
 )
 from .candidate import CandidateHandler
 from .classification import (
     ClassificationHandler,
+    ClassificationVotesHandler,
     ObjClassificationHandler,
     ObjClassificationQueryHandler,
 )
 from .comment import CommentHandler, CommentAttachmentHandler
+from .comment_attachment import CommentAttachmentUpdateHandler
 from .annotation import AnnotationHandler
 from .annotation_services import (
     GaiaQueryHandler,
@@ -19,11 +23,24 @@ from .annotation_services import (
     VizierQueryHandler,
     DatalabQueryHandler,
 )
+from .catalog_services import (
+    CatalogQueryHandler,
+    SwiftLSXPSQueryHandler,
+    GaiaPhotometricAlertsQueryHandler,
+)
 from .db_stats import StatsHandler
+from .earthquake import (
+    EarthquakeHandler,
+    EarthquakeMeasurementHandler,
+    EarthquakePredictionHandler,
+    EarthquakeStatusHandler,
+)
 from .enum_types import EnumTypesHandler
 from .filter import FilterHandler
 from .followup_request import (
+    DefaultFollowupRequestHandler,
     FollowupRequestHandler,
+    FollowupRequestWatcherHandler,
     FollowupRequestPrioritizationHandler,
     FollowupRequestSchedulerHandler,
     AssignmentHandler,
@@ -33,11 +50,19 @@ from .galaxy import GalaxyCatalogHandler, GalaxyASCIIFileHandler, GalaxyGladeHan
 from .gcn import (
     GcnEventHandler,
     GcnEventObservationPlanRequestsHandler,
+    GcnEventPropertiesHandler,
     GcnEventSurveyEfficiencyHandler,
+    GcnEventCatalogQueryHandler,
+    GcnEventInstrumentFieldHandler,
     GcnEventTagsHandler,
     GcnSummaryHandler,
     LocalizationHandler,
+    LocalizationDownloadHandler,
+    LocalizationCrossmatchHandler,
+    LocalizationPropertiesHandler,
+    LocalizationTagsHandler,
 )
+from .gcn_tach import GcnTachHandler
 from .group import (
     GroupHandler,
     GroupUserHandler,
@@ -48,15 +73,18 @@ from .group import (
 from .healpix import HealpixUpdateHandler
 from .user_obj_list import UserObjListHandler
 from .group_admission_request import GroupAdmissionRequestHandler
-from .instrument import InstrumentHandler
+from .instrument import InstrumentHandler, InstrumentFieldHandler
 from .invalid import InvalidEndpointHandler
 from .invitations import InvitationHandler
-from .mmadetector import MMADetectorHandler, MMADetectorSpectrumHandler
+from .mmadetector import (
+    MMADetectorHandler,
+    MMADetectorSpectrumHandler,
+    MMADetectorTimeIntervalHandler,
+)
 from .news_feed import NewsFeedHandler
 from .observation import (
     ObservationASCIIFileHandler,
     ObservationHandler,
-    ObservationGCNHandler,
     ObservationTreasureMapHandler,
     ObservationExternalAPIHandler,
     ObservationSimSurveyHandler,
@@ -70,14 +98,17 @@ from .observation_plan import (
     ObservationPlanGCNHandler,
     ObservationPlanSubmitHandler,
     ObservationPlanMovieHandler,
+    ObservationPlanNameHandler,
+    ObservationPlanObservabilityPlotHandler,
+    ObservationPlanWorldmapPlotHandler,
     ObservationPlanSimSurveyHandler,
     ObservationPlanSimSurveyPlotHandler,
-    ObservationPlanSummaryStatisticsHandler,
     ObservationPlanSurveyEfficiencyHandler,
     ObservationPlanGeoJSONHandler,
     ObservationPlanAirmassChartHandler,
     ObservationPlanCreateObservingRunHandler,
     ObservationPlanFieldsHandler,
+    ObservationPlanManualRequestHandler,
 )
 from .photometry import (
     PhotometryHandler,
@@ -86,24 +117,29 @@ from .photometry import (
     PhotometryRangeHandler,
     PhotometryOriginHandler,
 )
+from .photometric_series import PhotometricSeriesHandler
 from .phot_stat import PhotStatHandler, PhotStatUpdateHandler
 from .color_mag import ObjColorMagHandler
 from .photometry_request import PhotometryRequestHandler
 from .public_group import PublicGroupHandler
 from .roles import RoleHandler, UserRoleHandler
 from .obj import ObjHandler
+from .recurring_api import RecurringAPIHandler
 from .reminder import ReminderHandler
 from .sharing import SharingHandler
 from .shift import ShiftHandler, ShiftUserHandler, ShiftSummary
 from .source import (
     SourceHandler,
+    SourceCopyPhotometryHandler,
     SourceOffsetsHandler,
     SourceFinderHandler,
     SourceNotificationHandler,
+    SourceObservabilityPlotHandler,
     PS1ThumbnailHandler,
 )
 from .source_exists import SourceExistsHandler
 from .source_groups import SourceGroupsHandler
+from .spatial_catalog import SpatialCatalogHandler, SpatialCatalogASCIIFileHandler
 from .spectrum import (
     SpectrumHandler,
     ObjSpectraHandler,
@@ -112,7 +148,9 @@ from .spectrum import (
     SpectrumRangeHandler,
     SyntheticPhotometryHandler,
 )
+from .source_labels import SourceLabelsHandler
 from .survey_efficiency import (
+    DefaultSurveyEfficiencyRequestHandler,
     SurveyEfficiencyForObservationPlanHandler,
     SurveyEfficiencyForObservationsHandler,
 )
@@ -122,7 +160,7 @@ from .config_handler import ConfigHandler
 from .taxonomy import TaxonomyHandler
 from .telescope import TelescopeHandler
 from .tns import ObjTNSHandler, SpectrumTNSHandler, TNSRobotHandler
-from .thumbnail import ThumbnailHandler
+from .thumbnail import ThumbnailHandler, ThumbnailPathHandler
 from .user import (
     UserHandler,
     set_default_acls,

@@ -164,7 +164,7 @@ def setup_schema():
             schema_class_name = class_.__name__
             add_schema(
                 schema_class_name,
-                exclude=['healpix', 'created_at', 'modified'],
+                exclude=['time_interval', 'healpix', 'created_at', 'modified'],
                 add_to_model=True,
             )
             add_schema(
@@ -176,6 +176,7 @@ def setup_schema():
                     'owner_id',
                     'last_modified_by_id',
                     'healpix',
+                    'time_interval',
                 ],
             )
             if schema_class_name == "Obj":
@@ -344,7 +345,7 @@ class PhotBaseFlexible:
             )
         },
         load_default=None,
-        default=None,
+        dump_default=None,
         required=False,
     )
 
@@ -422,6 +423,46 @@ class PhotFluxFlexible(_Schema, PhotBaseFlexible):
         required=True,
     )
 
+    ref_flux = fields.Field(
+        metadata={
+            'description': (
+                'Flux of the reference image in counts. '
+                'Can be given as a scalar or a 1D list. '
+                'If a scalar, will be broadcast to all values '
+                'given as lists. '
+                'Null values allowed if no reference is given. '
+            ),
+        },
+        required=False,
+        load_default=None,
+    )
+
+    ref_fluxerr = fields.Field(
+        metadata={
+            'description': 'Gaussian error on the reference flux in counts. '
+            'Can be given as a scalar or a 1D list. '
+            'If a scalar, will be broadcast to all values '
+            'given as lists. Null values allowed.'
+        },
+        required=False,
+        load_default=None,
+        validate=validate_fluxerr,
+    )
+
+    ref_zp = fields.Field(
+        metadata={
+            'description': 'Magnitude zeropoint for the reference flux, '
+            'given by `zp` in the '
+            'equation `m = -2.5 log10(flux) + zp`. '
+            '`m` is the magnitude of the object in the '
+            'magnitude system `magsys`. '
+            'Can be given as a scalar or a 1D list. '
+            'If Null or not given, will be set to the '
+            'default zeropoint of 23.9. '
+        },
+        required=False,
+    )
+
 
 class PhotMagFlexible(_Schema, PhotBaseFlexible):
     """This is one of two classes used for rendering the
@@ -466,7 +507,7 @@ class PhotMagFlexible(_Schema, PhotBaseFlexible):
 
     magerr = fields.Field(
         metadata={
-            'description': 'Magnitude of the observation in the '
+            'description': 'Error on the magnitude in the '
             'magnitude system `magsys`. '
             'Can be given as a scalar or a 1D list. '
             'If a scalar, will be broadcast to all values '
@@ -498,6 +539,32 @@ class PhotMagFlexible(_Schema, PhotBaseFlexible):
         },
         required=False,
         load_default=PHOT_DETECTION_THRESHOLD,
+    )
+
+    magref = fields.Field(
+        metadata={
+            'description': (
+                'Magnitude of the reference image. '
+                'in the magnitude system `magsys`. '
+                'Can be given as a scalar or a 1D list. '
+                'If a scalar, will be broadcast to all values '
+                'given as lists. '
+                'Null values allowed if no reference is given. '
+            ),
+        },
+        required=False,
+        load_default=None,
+    )
+
+    e_magref = fields.Field(
+        metadata={
+            'description': 'Gaussian error on the reference magnitude. '
+            'Can be given as a scalar or a 1D list. '
+            'If a scalar, will be broadcast to all values '
+            'given as lists. Null values allowed.'
+        },
+        required=False,
+        load_default=None,
     )
 
 
@@ -570,7 +637,7 @@ class PhotBase:
             )
         },
         load_default=None,
-        default=None,
+        dump_default=None,
     )
     dec = fields.Number(
         metadata={
@@ -578,19 +645,19 @@ class PhotBase:
             'of the photometric aperture [deg].'
         },
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     ra_unc = fields.Number(
         metadata={'description': 'Uncertainty on RA [arcsec].'},
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     dec_unc = fields.Number(
         metadata={'description': 'Uncertainty on dec [arcsec].'},
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     alert_id = fields.Integer(
@@ -603,7 +670,7 @@ class PhotBase:
             )
         },
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     altdata = fields.Dict(
@@ -616,7 +683,7 @@ class PhotBase:
             )
         },
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     @post_load
@@ -645,7 +712,7 @@ class PhotometryFlux(_Schema, PhotBase):
         },
         required=False,
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     fluxerr = fields.Number(
@@ -660,6 +727,47 @@ class PhotometryFlux(_Schema, PhotBase):
             'magnitude system `magsys`.'
         },
         required=True,
+    )
+
+    ref_flux = fields.Field(
+        metadata={
+            'description': (
+                'Flux of the reference image in counts. '
+                'Can be given as a scalar or a 1D list. '
+                'If a scalar, will be broadcast to all values '
+                'given as lists. '
+                'Null values allowed if no reference is given. '
+            ),
+        },
+        required=False,
+        load_default=None,
+    )
+
+    ref_fluxerr = fields.Field(
+        metadata={
+            'description': 'Gaussian error on the reference flux in counts. '
+            'Can be given as a scalar or a 1D list. '
+            'If a scalar, will be broadcast to all values '
+            'given as lists. Null values allowed.'
+        },
+        required=False,
+        load_default=None,
+        validate=validate_fluxerr,
+    )
+
+    ref_zp = fields.Field(
+        metadata={
+            'description': 'Magnitude zeropoint of the reference image, '
+            'given by `ZP` in the equation m = -2.5 log10(flux) + `ZP`. '
+            'm is the magnitude of the object in the '
+            'magnitude system `magsys`. '
+            'Can be given as a scalar or a 1D list. '
+            'If a scalar, will be broadcast to all values '
+            'given as lists. Null values assume the '
+            'standard zero point of 23.9. '
+        },
+        required=False,
+        load_default=None,
     )
 
     @post_load
@@ -709,6 +817,38 @@ class PhotometryFlux(_Schema, PhotBase):
         # replace with null if needed
         final_flux = None if data['flux'] is None else photdata.flux[0]
 
+        if data.get('ref_flux') is not None and data.get('ref_fluxerr') is not None:
+            ref_flux = data['ref_flux']
+            ref_fluxerr = data['ref_fluxerr']
+
+            if 'ref_zp' in data and data['ref_zp'] is not None:
+                ref_zp = data['ref_zp']
+            else:
+                ref_zp = PHOT_ZP
+
+            ref_table = Table(
+                [
+                    {
+                        'flux': ref_flux,
+                        'fluxerr': ref_fluxerr,
+                        'magsys': data['magsys'],
+                        'zp': ref_zp,
+                        'filter': data['filter'],
+                        'mjd': data['mjd'],
+                    }
+                ]
+            )
+
+            # conversion of reference flux happens here
+            ref_photdata = PhotometricData(ref_table).normalized(
+                zp=PHOT_ZP, zpsys=PHOT_SYS
+            )
+            ref_flux = ref_photdata.flux[0]
+            ref_fluxerr = ref_photdata.fluxerr[0]
+        else:
+            ref_flux = None
+            ref_fluxerr = None
+
         p = Photometry(
             obj_id=data['obj_id'],
             mjd=data['mjd'],
@@ -721,6 +861,8 @@ class PhotometryFlux(_Schema, PhotBase):
             dec=data['dec'],
             ra_unc=data['ra_unc'],
             dec_unc=data['dec_unc'],
+            ref_flux=ref_flux,
+            ref_fluxerr=ref_fluxerr,
         )
         if 'alert_id' in data and data['alert_id'] is not None:
             p.alert_id = data['alert_id']
@@ -742,7 +884,7 @@ class PhotometryMag(_Schema, PhotBase):
         },
         required=False,
         load_default=None,
-        default=None,
+        dump_default=None,
     )
     magerr = fields.Number(
         metadata={
@@ -752,7 +894,7 @@ class PhotometryMag(_Schema, PhotBase):
         },
         required=False,
         load_default=None,
-        default=None,
+        dump_default=None,
     )
     limiting_mag = fields.Number(
         metadata={
@@ -760,6 +902,31 @@ class PhotometryMag(_Schema, PhotBase):
             'in the magnitude system `magsys`.'
         },
         required=True,
+    )
+    magref = fields.Field(
+        metadata={
+            'description': (
+                'Magnitude of the reference image. '
+                'in the magnitude system `magsys`. '
+                'Can be given as a scalar or a 1D list. '
+                'If a scalar, will be broadcast to all values '
+                'given as lists. '
+                'Null values allowed if no reference is given. '
+            ),
+        },
+        required=False,
+        load_default=None,
+    )
+
+    e_magref = fields.Field(
+        metadata={
+            'description': 'Gaussian error on the reference magnitude. '
+            'Can be given as a scalar or a 1D list. '
+            'If a scalar, will be broadcast to all values '
+            'given as lists. Null values allowed.'
+        },
+        required=False,
+        load_default=None,
     )
 
     @post_load
@@ -811,13 +978,10 @@ class PhotometryMag(_Schema, PhotBase):
                 f"Instrument {instrument.name} has no filter " f"{data['filter']}."
             )
 
-        # determine if this is a limit or a measurement
-        hasmag = data['mag'] is not None
-
-        if hasmag:
+        if data['mag'] is not None:  # measurement
             flux = 10 ** (-0.4 * (data['mag'] - PHOT_ZP))
             fluxerr = data['magerr'] / (2.5 / np.log(10)) * flux
-        else:
+        else:  # upper limit
             nsigflux = 10 ** (-0.4 * (data['limiting_mag'] - PHOT_ZP))
             flux = None
             fluxerr = nsigflux / PHOT_DETECTION_THRESHOLD
@@ -843,6 +1007,34 @@ class PhotometryMag(_Schema, PhotBase):
         # conversion happens here
         photdata = PhotometricData(table).normalized(zp=PHOT_ZP, zpsys=PHOT_SYS)
 
+        if data.get('magref') is not None and data.get('e_magref') is not None:
+            ref_flux = 10 ** (-0.4 * (data['magref'] - PHOT_ZP))
+            ref_fluxerr = data['e_magref'] * ref_flux * np.log(10) / 2.5
+
+            ref_table = Table(
+                [
+                    {
+                        'flux': ref_flux,
+                        'fluxerr': ref_fluxerr,
+                        'magsys': data['magsys'],
+                        'zp': PHOT_ZP,
+                        'filter': data['filter'],
+                        'mjd': data['mjd'],
+                    }
+                ]
+            )
+
+            # conversion of reference flux happens here
+            ref_photdata = PhotometricData(ref_table).normalized(
+                zp=PHOT_ZP, zpsys=PHOT_SYS
+            )
+            ref_flux = ref_photdata.flux[0]
+            ref_fluxerr = ref_photdata.fluxerr[0]
+
+        else:
+            ref_flux = None
+            ref_fluxerr = None
+
         # replace with null if needed
         final_flux = None if flux is None else photdata.flux[0]
 
@@ -851,6 +1043,8 @@ class PhotometryMag(_Schema, PhotBase):
             mjd=data['mjd'],
             flux=final_flux,
             fluxerr=photdata.fluxerr[0],
+            ref_flux=ref_flux,
+            ref_fluxerr=ref_fluxerr,
             instrument_id=data['instrument_id'],
             assignment_id=data['assignment_id'],
             filter=data['filter'],
@@ -1044,6 +1238,73 @@ class ObservationPlanPost(_Schema):
     )
 
 
+class ObservationPlanManualHandlerPost(_Schema):
+
+    gcnevent_id = fields.Integer(
+        required=True,
+        metadata={'description': "ID of the GcnEvent."},
+    )
+
+    status = fields.String(
+        load_default="pending submission",
+        metadata={'description': "The status of the request."},
+        required=False,
+    )
+
+    allocation_id = fields.Integer(
+        required=True,
+        metadata={'description': "Observation plan request allocation ID."},
+    )
+
+    localization_id = fields.Integer(
+        required=True,
+        metadata={'description': "Localization ID."},
+    )
+
+    target_group_ids = fields.List(
+        fields.Integer,
+        required=False,
+        metadata={
+            'description': (
+                'IDs of groups to share the results of the observation plan request with.'
+            )
+        },
+    )
+
+    observation_plan_data = fields.Field(
+        metadata={'description': 'Observation plan data json'}
+    )
+
+
+class CatalogQueryPost(_Schema):
+
+    payload = fields.Field(
+        required=False,
+        metadata={'description': "Content of the catalog query request."},
+    )
+
+    status = fields.String(
+        load_default="pending submission",
+        metadata={'description': "The status of the request."},
+        required=False,
+    )
+
+    allocation_id = fields.Integer(
+        required=True,
+        metadata={'description': "Catalog query request allocation ID."},
+    )
+
+    target_group_ids = fields.List(
+        fields.Integer,
+        required=False,
+        metadata={
+            'description': (
+                'IDs of groups to share the results of the observation plan request with.'
+            )
+        },
+    )
+
+
 class DefaultObservationPlanPost(_Schema):
 
     payload = fields.Field(
@@ -1064,6 +1325,42 @@ class DefaultObservationPlanPost(_Schema):
                 'IDs of groups to share the results of the default observation plan request with.'
             )
         },
+    )
+
+
+class DefaultFollowupRequestPost(_Schema):
+
+    payload = fields.Field(
+        required=False,
+        metadata={'description': "Content of the default follow-up request."},
+    )
+
+    allocation_id = fields.Integer(
+        required=True,
+        metadata={'description': "Follow-up request allocation ID."},
+    )
+
+    target_group_ids = fields.List(
+        fields.Integer,
+        required=False,
+        metadata={
+            'description': (
+                'IDs of groups to share the results of the default follow-up request with.'
+            )
+        },
+    )
+
+
+class DefaultSurveyEfficiencyPost(_Schema):
+
+    payload = fields.Field(
+        required=False,
+        metadata={'description': "Content of the default survey efficiency analysis."},
+    )
+
+    default_observationplan_request_id = fields.Integer(
+        required=True,
+        metadata={'description': "Default observation plan request ID."},
     )
 
 
@@ -1097,7 +1394,7 @@ class PhotometryRangeQuery(_Schema):
         },
         required=False,
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     min_date = fields.DateTime(
@@ -1110,7 +1407,7 @@ class PhotometryRangeQuery(_Schema):
             )
         },
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
     max_date = fields.DateTime(
@@ -1123,7 +1420,7 @@ class PhotometryRangeQuery(_Schema):
             )
         },
         load_default=None,
-        default=None,
+        dump_default=None,
     )
 
 
@@ -1654,6 +1951,18 @@ class GalaxyASCIIFileHandlerPost(_Schema):
     catalogData = fields.Field(metadata={'description': 'Catalog data Ascii string'})
 
 
+class SpatialCatalogHandlerPost(_Schema):
+    catalog_name = fields.String(metadata={"description": 'Spatial catalog name.'})
+    catalog_data = fields.List(
+        fields.Field(), metadata={"description": 'Spatial catalog data'}
+    )
+
+
+class SpatialCatalogASCIIFileHandlerPost(_Schema):
+    catalogName = fields.String(metadata={"description": 'Spatial catalog name.'})
+    catalogData = fields.Field(metadata={'description': 'Catalog data Ascii string'})
+
+
 def register_components(spec):
     print('Registering schemas with APISpec')
 
@@ -1677,6 +1986,7 @@ Error = Error()
 Success = success('Success')
 SinglePhotometryFlux = success('SinglePhotometryFlux', PhotometryFlux)
 SinglePhotometryMag = success('SinglePhotometryMag', PhotometryMag)
+CatalogQueryPost = CatalogQueryPost()
 MMADetectorSpectrumPost = MMADetectorSpectrumPost()
 PhotometryFlux = PhotometryFlux()
 PhotometryMag = PhotometryMag()

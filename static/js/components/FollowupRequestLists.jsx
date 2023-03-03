@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import PropTypes from "prop-types";
 import { useDispatch } from "react-redux";
-import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Accordion from "@mui/material/Accordion";
 import AccordionSummary from "@mui/material/AccordionSummary";
@@ -17,6 +16,8 @@ import {
 } from "@mui/material/styles";
 import makeStyles from "@mui/styles/makeStyles";
 import MUIDataTable from "mui-datatables";
+import Button from "./Button";
+import WatcherButton from "./WatcherButton";
 
 import * as Actions from "../ducks/source";
 
@@ -226,13 +227,12 @@ const FollowupRequestLists = ({
             ) : (
               <div>
                 <Button
+                  primary
                   onClick={() => {
                     handleDelete(followupRequest.id);
                   }}
                   size="small"
-                  color="primary"
                   type="submit"
-                  variant="outlined"
                   data-testid={`deleteRequest_${followupRequest.id}`}
                 >
                   Delete
@@ -248,13 +248,12 @@ const FollowupRequestLists = ({
                 ) : (
                   <div>
                     <Button
+                      primary
                       onClick={() => {
                         handleGet(followupRequest.id);
                       }}
                       size="small"
-                      color="primary"
                       type="submit"
-                      variant="outlined"
                       data-testid={`getRequest_${followupRequest.id}`}
                     >
                       Retrieve
@@ -280,6 +279,22 @@ const FollowupRequestLists = ({
         },
       });
     }
+
+    const renderWatcher = (dataIndex) => {
+      const followupRequest = requestsGroupedByInstId[instrument_id][dataIndex];
+      return (
+        <div>
+          <WatcherButton followupRequest={followupRequest} textMode={false} />
+        </div>
+      );
+    };
+    columns.push({
+      name: "watcher",
+      label: "Watch?",
+      options: {
+        customBodyRenderLite: renderWatcher,
+      },
+    });
 
     return columns;
   };
